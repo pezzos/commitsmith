@@ -63,7 +63,7 @@ meta:
 **Behaviors:**
 
 * Read existing YAML file, parse entries.
-* Append new lines (`addEntry()`).
+* Expose CLI helper so Codex can append entries (`addEntry()`), while the extension itself never writes to the journal.
 * Clear `current` after successful commit (`clearCurrent()`).
 * Auto-create file if missing (`initializeJournal()`).
 * Validate format via JSON Schema (`assets/schema/ai-commit-journal.schema.json`).
@@ -108,6 +108,28 @@ runStep(cmd: string, step: string): Promise<StepResult>;
 aiFix(errors: StepResult, repo: GitRepository): Promise<boolean>;
 ```
 
+**StepResult contract:**
+
+```ts
+interface StepResult {
+  step: "format" | "typecheck" | "tests";
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  errors?: FixContext[];
+}
+
+interface FixContext {
+  filePath: string;
+  errorMessage: string;
+  codeSnippet?: string;
+}
+```
+
+* Parse command output to populate `errors` for failed steps.
+* Provide each `FixContext` to Codex; expect unified diff patches constrained to already staged or directly failing files.
+* Re-stage patched files after successful fixes; ignore untracked/unrelated paths.
+
 **Settings Integration:**
 
 * `commitSmith.format.command`
@@ -115,6 +137,7 @@ aiFix(errors: StepResult, repo: GitRepository): Promise<boolean>;
 * `commitSmith.tests.command`
 * `commitSmith.pipeline.enable`
 * `commitSmith.pipeline.maxAiFixAttempts`
+* `commitSmith.pipeline.abortOnFailure`
 
 ---
 
@@ -188,8 +211,9 @@ Expose and load user-defined settings from VS Code configuration.
 | `commitSmith.message.style`             | string  | `"conventional"`          | Message format         |
 | `commitSmith.message.enforce72`         | boolean | `true`                    | 72-char limit          |
 | `commitSmith.jira.fromBranch`           | boolean | `true`                    | Detect ticket          |
-| `commitSmith.codex.model`               | string  | `"codex:commit-writer"`   | Model name             |
+| `commitSmith.codex.model`               | string  | `"gpt-5-codex"`           | Model name             |
 | `commitSmith.codex.endpoint`            | string  | `"http://localhost:9999"` | Codex API URL          |
+| `commitSmith.pipeline.abortOnFailure`   | boolean | `true`                    | Abort pipeline on failure |
 
 **API:**
 
@@ -262,6 +286,21 @@ push(repo: GitRepository): Promise<void>;
 
 ---
 
+### 🧪 **3.7 Dry-run & Ignore Rules**
+
+**Dry Run (`commitSmith.dryRun`):**
+
+* Execute the full pipeline and gather Codex patches without applying them.
+* Write patch previews to `.commit-smith/patches/<timestamp>/<file>.patch`, alongside command logs for review.
+
+**Ignore File (`.commit-smith-ignore`):**
+
+* Plain-text glob patterns (same semantics as `.gitignore`).
+* Precedence: `.commit-smith-ignore` → `.gitignore` → internal defaults (e.g., `.ai-commit-journal.yml`, `.commit-smith/**`).
+* Ignored paths are excluded from pipeline checks, AI fixes, patch previews, and journaling.
+
+---
+
 ## **4. UI & UX**
 
 ### **User Flow**
@@ -305,6 +344,12 @@ push(repo: GitRepository): Promise<void>;
 | **Extensibility** | Future modules: LintSmith, TestSmith                    |
 | **Privacy**       | AI prompts contain no source code beyond context needed |
 | **Offline Mode**  | Fallback to local heuristic message                     |
+
+**Offline Mode Behavior:**
+
+* Triggered when Codex returns a network error, non-200 response, or exceeds 10s timeout.
+* Use staged changes to craft `chore: commit updated files [offline mode]` messages with a short file list.
+* Derive scope from the first file's folder when available and log a warning in `OUTPUT > CommitSmith`.
 
 ---
 

@@ -59,7 +59,7 @@ When you hit the **AI Commit** button, CommitSmith:
     scope: jobs-service
     style: conventional
   ```
-* Codex updates it after each task:
+* Codex updates it after each task via the extension-provided CLI helper (CommitSmith never self-appends):
 
   ```
   codex journal --append "refactor: split job runner into scheduler/worker/utils"
@@ -100,6 +100,8 @@ Note: The commands are configurable.
 * Uses Codex to correct only the failing sections from the staged files only.
 * Limited diff patching, safe edits only.
 * Auto-restages fixed files.
+* `StepResult` objects track `stdout`/`stderr` plus parsed `FixContext` entries (file, message, snippet) passed to Codex.
+* Codex returns unified diffs; apply patches only to already staged or directly failing files, then re-stage.
 
 **If all checks pass:** proceed with commit.
 **If not:** surface logs, abort, or allow override (depending on user config).
@@ -122,6 +124,7 @@ All options exposed via VS Code settings:
 | `commitSmith.message.enforce72`         | Enforce 72-char limit                  | `true`                  |
 | `commitSmith.jira.fromBranch`           | Extract ticket from branch             | `true`                  |
 | `commitSmith.codex.model`               | Codex model used                       | `gpt-5-codex`           |
+| `commitSmith.pipeline.abortOnFailure`   | Stop pipeline when a step fails        | `true`                  |
 Note: We must ensure `codex` is installed, configured and available.
 
 ---
@@ -133,6 +136,8 @@ Note: We must ensure `codex` is installed, configured and available.
 * **Ignore rules** → `.commit-smith-ignore` file to skip paths/files.
 * **Install Hooks command** → generates `.git/hooks/pre-commit` to run the same pipeline via CLI.
 * **Scope detection** → fallback to workspace folder name if none in branch.
+* Dry run previews land in `.commit-smith/patches/<timestamp>/<file>.patch` (unified diff + logs).
+* `.commit-smith-ignore` patterns override `.gitignore`, followed by internal defaults, to keep unwanted paths out of checks, fixes, and journaling.
 
 ---
 
@@ -233,6 +238,7 @@ Note: We must ensure `codex` is installed, configured and available.
 ✅ No hallucinations — journal is the only source of truth.
 ✅ Works seamlessly in Cursor and vanilla VS Code.
 ✅ Developer can configure everything from settings.
+✅ Offline fallback produces heuristic `[offline mode]` commits when Codex is unreachable (network errors, non-200, or >10s timeout).
 
 ---
 
