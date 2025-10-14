@@ -101,7 +101,13 @@ Note: The commands are configurable.
 * Limited diff patching, safe edits only.
 * Auto-restages fixed files.
 * `StepResult` objects track `stdout`/`stderr` plus parsed `FixContext` entries (file, message, snippet) passed to Codex.
-* Codex returns unified diffs; apply patches only to already staged or directly failing files, then re-stage.
+* Codex returns `AIPatch` unified diffs; validate with `git apply --check`, apply only to staged/implicated files (respecting `.commit-smith-ignore`), and restage affected paths.
+* If a step keeps failing:
+  * `abortOnFailure === true` → hard stop, no commit.
+  * `abortOnFailure === false` → user modal with options:
+    1. **Commit anyway** (skip remaining checks, annotate body with `[pipeline failed at <step>: see OUTPUT > CommitSmith]`, disable auto-push),
+    2. **Retry step (no AI)**,
+    3. **Abort**.
 
 **If all checks pass:** proceed with commit.
 **If not:** surface logs, abort, or allow override (depending on user config).
@@ -124,6 +130,7 @@ All options exposed via VS Code settings:
 | `commitSmith.message.enforce72`         | Enforce 72-char limit                  | `true`                  |
 | `commitSmith.jira.fromBranch`           | Extract ticket from branch             | `true`                  |
 | `commitSmith.codex.model`               | Codex model used                       | `gpt-5-codex`           |
+| `commitSmith.codex.timeoutMs`           | Codex request timeout (ms)             | `10000`                 |
 | `commitSmith.pipeline.abortOnFailure`   | Stop pipeline when a step fails        | `true`                  |
 Note: We must ensure `codex` is installed, configured and available.
 
@@ -136,8 +143,8 @@ Note: We must ensure `codex` is installed, configured and available.
 * **Ignore rules** → `.commit-smith-ignore` file to skip paths/files.
 * **Install Hooks command** → generates `.git/hooks/pre-commit` to run the same pipeline via CLI.
 * **Scope detection** → fallback to workspace folder name if none in branch.
-* Dry run previews land in `.commit-smith/patches/<timestamp>/<file>.patch` (unified diff + logs).
-* `.commit-smith-ignore` patterns override `.gitignore`, followed by internal defaults, to keep unwanted paths out of checks, fixes, and journaling.
+* Dry run simulates the full pipeline without altering the repo: uses `--check` formats where possible, captures Codex patches to `.commit-smith/patches/<timestamp>/<file>.patch`, and writes `summary.json` + `COMMIT_MESSAGE.md` artefacts.
+* `.commit-smith-ignore` patterns override `.gitignore`, followed by internal defaults, to keep unwanted paths out of checks, fixes, journaling, and dry-run artefacts.
 
 ---
 

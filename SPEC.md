@@ -96,9 +96,13 @@ Run configurable pre-commit tasks and optionally trigger AI-based code fixes.
 * Detect modified files → auto-stage (`simple-git`).
 * If a command fails:
 
-  * Retry with Codex AI fix.
-  * If still failing → abort (configurable).
-* Collect logs to `OUTPUT > CommitSmith`.
+  * Retry with Codex AI fix up to `commitSmith.pipeline.maxAiFixAttempts`, re-running the step after each applied patch.
+  * If still failing and `commitSmith.pipeline.abortOnFailure === true`, halt the pipeline with no commit.
+  * If still failing and `abortOnFailure === false`, open a modal offering:
+    1. **Commit anyway** — skip remaining steps, annotate the commit body with `[pipeline failed at <step>: see OUTPUT > CommitSmith]`, and suppress auto-push even when enabled.
+    2. **Retry step (no AI)** — run the command once more without Codex assistance; show the modal again if it still fails.
+    3. **Abort** — exit the pipeline without committing.
+* Collect logs to `OUTPUT > CommitSmith`, and continue to subsequent steps once a failing step eventually passes.
 
 **Key Functions:**
 
@@ -108,27 +112,9 @@ runStep(cmd: string, step: string): Promise<StepResult>;
 aiFix(errors: StepResult, repo: GitRepository): Promise<boolean>;
 ```
 
-**StepResult contract:**
-
-```ts
-interface StepResult {
-  step: "format" | "typecheck" | "tests";
-  success: boolean;
-  stdout: string;
-  stderr: string;
-  errors?: FixContext[];
-}
-
-interface FixContext {
-  filePath: string;
-  errorMessage: string;
-  codeSnippet?: string;
-}
-```
-
-* Parse command output to populate `errors` for failed steps.
-* Provide each `FixContext` to Codex; expect unified diff patches constrained to already staged or directly failing files.
-* Re-stage patched files after successful fixes; ignore untracked/unrelated paths.
+* Parse command output to populate `errors` for failed steps (see type definitions in §3.8).
+* Provide each `FixContext` to Codex; expect scoped `AIPatch` unified diffs, validate with `git apply --check`, apply eligible patches, and restage only affected files.
+* Respect `.commit-smith-ignore` when evaluating candidate files, and skip any patch that cannot be applied cleanly.
 
 **Settings Integration:**
 
@@ -188,8 +174,12 @@ Communicate with Codex for:
 
 ```ts
 generateCommitMessage(journal: JournalData): Promise<string>;
-generateFix(errorData: FixContext): Promise<Patch>;
+generateFix(errorData: FixContext): Promise<AIPatch>;
 ```
+
+* Responses must follow the `AIPatch` unified diff contract in §3.8.
+* Validate incoming diffs via `git apply --check` and ensure touched files are either staged or explicitly part of the failing step, excluding `.commit-smith-ignore` matches.
+* Apply acceptable patches with `git apply`, restage only the affected files, and skip any patch that cannot be applied cleanly.
 
 ---
 
@@ -213,6 +203,7 @@ Expose and load user-defined settings from VS Code configuration.
 | `commitSmith.jira.fromBranch`           | boolean | `true`                    | Detect ticket          |
 | `commitSmith.codex.model`               | string  | `"gpt-5-codex"`           | Model name             |
 | `commitSmith.codex.endpoint`            | string  | `"http://localhost:9999"` | Codex API URL          |
+| `commitSmith.codex.timeoutMs`           | number  | `10000`                   | Codex request timeout  |
 | `commitSmith.pipeline.abortOnFailure`   | boolean | `true`                    | Abort pipeline on failure |
 
 **API:**
@@ -290,14 +281,55 @@ push(repo: GitRepository): Promise<void>;
 
 **Dry Run (`commitSmith.dryRun`):**
 
-* Execute the full pipeline and gather Codex patches without applying them.
-* Write patch previews to `.commit-smith/patches/<timestamp>/<file>.patch`, alongside command logs for review.
+* Simulate the full pipeline while leaving the working tree untouched.
+* Skip mutating commands (e.g., use `--check` variants where possible) yet still capture diagnostics.
+* Request Codex patches on failures but never apply them; instead, export them to `.commit-smith/patches/<ISO-timestamp>/<relative-path>.patch`.
+* Emit a `summary.json` file in the same directory describing attempted steps, patch statuses, and aggregated logs.
+* Generate the commit message from the journal but leave `repo.inputBox` empty; write the result to `COMMIT_MESSAGE.md` within the patch folder.
+* Preserve git state entirely—no `git add`, `git commit`, or journal clearing—while surfacing results in `OUTPUT > CommitSmith` and a “Dry run completed (no changes applied)” notification.
 
 **Ignore File (`.commit-smith-ignore`):**
 
 * Plain-text glob patterns (same semantics as `.gitignore`).
 * Precedence: `.commit-smith-ignore` → `.gitignore` → internal defaults (e.g., `.ai-commit-journal.yml`, `.commit-smith/**`).
 * Ignored paths are excluded from pipeline checks, AI fixes, patch previews, and journaling.
+
+---
+
+### 📦 **3.8 Type Definitions & Patch Handling**
+
+```ts
+export type PipelineStep = "format" | "typecheck" | "tests";
+
+export interface FixContext {
+  filePath: string;
+  errorMessage: string;
+  codeSnippet?: string;
+}
+
+export interface StepResult {
+  step: PipelineStep;
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  errors?: FixContext[];
+}
+
+export type AIPatch = {
+  kind: "unified-diff";
+  diff: string;
+  meta?: {
+    producedBy?: string;
+    step?: PipelineStep;
+    note?: string;
+  };
+};
+```
+
+* Only `kind: "unified-diff"` patches are supported in the MVP; diffs must be repo-relative with LF endings.
+* Before application, run `git apply --check` and verify that every touched file is either staged or explicitly referenced by the failing step (after `.commit-smith-ignore` filtering).
+* Apply valid patches with `git apply`, then restage just the affected files (`git add` on the patch paths).
+* If a patch fails validation or application, skip it, log the error, and continue to the next patch.
 
 ---
 
@@ -347,7 +379,7 @@ push(repo: GitRepository): Promise<void>;
 
 **Offline Mode Behavior:**
 
-* Triggered when Codex returns a network error, non-200 response, or exceeds 10s timeout.
+* Triggered when Codex returns a network error, non-200 response, or exceeds `commitSmith.codex.timeoutMs` (default 10s).
 * Use staged changes to craft `chore: commit updated files [offline mode]` messages with a short file list.
 * Derive scope from the first file's folder when available and log a warning in `OUTPUT > CommitSmith`.
 
