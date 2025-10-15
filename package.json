@@ -14,6 +14,7 @@
     "test:codex": "node --loader ts-node/esm ./scripts/test-codex.ts",
     "test:journal": "npm run compile && node ./scripts/test-journal.mjs",
     "test:pipeline": "npm run compile && node ./scripts/test-pipeline.mjs",
+    "test:integration": "npm run compile && node --loader ts-node/esm ./scripts/test-integration.ts",
     "lint": "echo \"No linting configured yet\""
   },
   "engines": {
@@ -23,7 +24,10 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:commitSmith.helloWorld"
+    "onCommand:commitSmith.generateFromJournal",
+    "onCommand:commitSmith.clearJournal",
+    "onCommand:commitSmith.installHooks",
+    "onCommand:commitSmith.dryRun"
   ],
   "bin": {
     "commit-smith": "./bin/commit-smith.js"
@@ -104,11 +108,35 @@
     },
     "commands": [
       {
-        "command": "commitSmith.helloWorld",
-        "title": "CommitSmith: Hello World",
+        "command": "commitSmith.generateFromJournal",
+        "title": "CommitSmith: AI Commit (Journal)",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.clearJournal",
+        "title": "CommitSmith: Clear Journal",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.installHooks",
+        "title": "CommitSmith: Install Hooks",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.dryRun",
+        "title": "CommitSmith: Dry Run (Coming Soon)",
         "category": "CommitSmith"
       }
-    ]
+    ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "commitSmith.generateFromJournal",
+          "group": "navigation@1",
+          "when": "scmProvider == git"
+        }
+      ]
+    }
   },
   "devDependencies": {
     "@types/node": "^18.19.0",
