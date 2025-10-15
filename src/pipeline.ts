@@ -4,7 +4,7 @@ import { exec, execFile } from 'node:child_process';
 import path from 'node:path';
 import { promises as fs, Dirent } from 'node:fs';
 import * as vscode from 'vscode';
-import minimatch from 'minimatch';
+import { minimatch } from 'minimatch';
 
 import { getConfig } from './config';
 import { generateFix, FixContext, AIPatch } from './codex';
@@ -86,6 +86,12 @@ interface RepoSnapshot {
 }
 
 const STEP_SEQUENCE: PipelineStepId[] = ['format', 'typecheck', 'tests'];
+const STEP_LABELS: Record<PipelineStepId, string> = {
+  format: 'FORMAT',
+  typecheck: 'TYPECHECK',
+  tests: 'TESTS'
+};
+type SymlinkType = 'dir' | 'file' | 'junction';
 
 export async function runPipeline(options: PipelineOptions): Promise<PipelineOutcome> {
   const config = getConfig();
@@ -101,11 +107,6 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineOut
   const repoRoot = options.repo.rootUri.fsPath;
   const stepDefinitions = await buildStepDefinitions(config, mode, repoRoot);
   const ignoreRules = await readIgnorePatterns(repoRoot);
-  const outcome: PipelineOutcome = {
-    status: 'completed',
-    suppressAutoPush: false
-  };
-
   const snapshot = isDryRun ? await captureRepoSnapshot(repoRoot) : undefined;
 
   try {
@@ -177,10 +178,8 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineOut
         hooks.onStepComplete?.(failingResult);
 
         if (config.pipelineAbortOnFailure) {
-          outcome.status = 'aborted';
-          outcome.failedStep = step.id;
           log(hooks, `Pipeline aborted on ${step.id}`);
-          return outcome;
+          return { status: 'aborted', failedStep: step.id, suppressAutoPush: false };
         }
 
         const decisionEvent: PipelineDecisionEvent = {
@@ -194,12 +193,13 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineOut
         const decision = await resolveDecision(hooks, decisionEvent);
 
         if (decision === 'commitAnyway') {
-          outcome.status = 'commit-anyway';
-          outcome.failedStep = step.id;
-          outcome.commitAnnotation = decisionEvent.commitAnnotation;
-          outcome.suppressAutoPush = true;
           log(hooks, `Pipeline continuing via commit-anyway decision after ${step.id}`);
-          return outcome;
+          return {
+            status: 'commit-anyway',
+            failedStep: step.id,
+            commitAnnotation: decisionEvent.commitAnnotation,
+            suppressAutoPush: true
+          };
         }
 
         if (decision === 'retry') {
@@ -207,10 +207,8 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineOut
           hooks.onStepComplete?.(retryResult);
 
           if (!retryResult.success) {
-            outcome.status = 'aborted';
-            outcome.failedStep = step.id;
             log(hooks, `Pipeline aborted after retry on ${step.id}`);
-            return outcome;
+            return { status: 'aborted', failedStep: step.id, suppressAutoPush: false };
           }
 
           if (!isDryRun) {
@@ -219,14 +217,12 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineOut
           continue;
         }
 
-        outcome.status = 'aborted';
-        outcome.failedStep = step.id;
         log(hooks, `Pipeline aborted by decision on ${step.id}`);
-        return outcome;
+        return { status: 'aborted', failedStep: step.id, suppressAutoPush: false };
       }
     }
 
-    return outcome;
+    return { status: 'completed', suppressAutoPush: false };
   } finally {
     if (snapshot) {
       await restoreRepoSnapshot(repoRoot, snapshot);
@@ -371,8 +367,8 @@ function extractLikelyFilePath(stderr: string): string | undefined {
 }
 
 async function applyPatch(cwd: string, diff: string): Promise<void> {
-  await execFileAsync('git', ['apply', '--check', '--whitespace=nowarn', '-'], { cwd, input: diff });
-  await execFileAsync('git', ['apply', '--whitespace=nowarn', '-'], { cwd, input: diff });
+  await execGitWithInput(['apply', '--check', '--whitespace=nowarn', '-'], cwd, diff);
+  await execGitWithInput(['apply', '--whitespace=nowarn', '-'], cwd, diff);
 }
 
 function extractPatchedFiles(diff: string): string[] {
@@ -464,16 +460,7 @@ function log(hooks: PipelineHooks, message: string): void {
 }
 
 function formatStepLabel(step: PipelineStepId): string {
-  switch (step) {
-    case 'format':
-      return 'FORMAT';
-    case 'typecheck':
-      return 'TYPECHECK';
-    case 'tests':
-      return 'TESTS';
-    default:
-      return step.toUpperCase();
-  }
+  return STEP_LABELS[step];
 }
 
 let outputChannel: vscode.OutputChannel | undefined;
@@ -544,11 +531,11 @@ async function restoreRepoSnapshot(cwd: string, snapshot: RepoSnapshot): Promise
   await execFileAsync('git', ['clean', '-fd', '-e', '.commit-smith', '-e', '.commit-smith/**'], { cwd });
 
   if (snapshot.stagedPatch.trim().length > 0) {
-    await execFileAsync('git', ['apply', '--binary', '--index', '-'], { cwd, input: snapshot.stagedPatch });
+    await execGitWithInput(['apply', '--binary', '--index', '-'], cwd, snapshot.stagedPatch);
   }
 
   if (snapshot.unstagedPatch.trim().length > 0) {
-    await execFileAsync('git', ['apply', '--binary', '-'], { cwd, input: snapshot.unstagedPatch });
+    await execGitWithInput(['apply', '--binary', '-'], cwd, snapshot.unstagedPatch);
   }
 
   if (snapshot.untrackedDir) {
@@ -567,11 +554,31 @@ async function restoreRepoSnapshot(cwd: string, snapshot: RepoSnapshot): Promise
   }
 }
 
+function execGitWithInput(args: string[], cwd: string, input: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = execFile('git', args, { cwd, maxBuffer: GIT_DIFF_BUFFER }, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+
+    if (!child.stdin) {
+      reject(new Error('Failed to write to git stdin.'));
+      return;
+    }
+
+    child.stdin.on('error', reject);
+    child.stdin.end(input, 'utf8');
+  });
+}
+
 async function copyEntryPreservingSymlink(source: string, destination: string): Promise<void> {
   const stats = await fs.lstat(source);
   if (stats.isSymbolicLink()) {
     const target = await fs.readlink(source);
-    let linkType: fs.symlink.Type | undefined;
+    let linkType: SymlinkType | undefined;
 
     if (process.platform === 'win32') {
       try {

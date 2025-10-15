@@ -2,7 +2,15 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 
 import { readJournal } from '../journal';
-import { runPipeline, PipelineHooks, PipelineDecisionEvent, PipelineDecision, PipelineStepId, DryRunPatchInfo, PipelineOutcome } from '../pipeline';
+import {
+  runPipeline,
+  PipelineHooks,
+  PipelineDecisionEvent,
+  PipelineDecision,
+  PipelineStepId,
+  DryRunPatchInfo,
+  PipelineOutcome
+} from '../pipeline';
 import { generateCommitMessage } from '../codex';
 import { GitRepository } from '../types/git';
 
@@ -106,14 +114,10 @@ export async function performDryRun(options: DryRunOptions): Promise<DryRunResul
 }
 
 function formatStepLabel(step: PipelineStepId): string {
-  switch (step) {
-    case 'format':
-      return 'FORMAT';
-    case 'typecheck':
-      return 'TYPECHECK';
-    case 'tests':
-      return 'TESTS';
-    default:
-      return step.toUpperCase();
-  }
+  const labels: Record<PipelineStepId, string> = {
+    format: 'FORMAT',
+    typecheck: 'TYPECHECK',
+    tests: 'TESTS'
+  };
+  return labels[step];
 }

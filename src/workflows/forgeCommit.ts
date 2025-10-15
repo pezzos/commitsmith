@@ -4,7 +4,14 @@ import path from 'node:path';
 
 import { getConfig } from '../config';
 import { initializeJournal, readJournal, clearCurrent } from '../journal';
-import { runPipeline, PipelineHooks, PipelineOutcome, PipelineDecisionEvent, PipelineDecision, PipelineStepId } from '../pipeline';
+import {
+  runPipeline,
+  PipelineHooks,
+  PipelineOutcome,
+  PipelineDecisionEvent,
+  PipelineDecision,
+  PipelineStepId
+} from '../pipeline';
 import { commit, push } from '../utils/git';
 import { generateCommitMessage } from '../codex';
 import { GitRepository } from '../types/git';
@@ -112,16 +119,12 @@ function createPipelineHooks(options: ForgeCommitOptions): PipelineHooks {
 }
 
 function formatStepLabel(step: PipelineStepId): string {
-  switch (step) {
-    case 'format':
-      return 'FORMAT';
-    case 'typecheck':
-      return 'TYPECHECK';
-    case 'tests':
-      return 'TESTS';
-    default:
-      return step.toUpperCase();
-  }
+  const labels: Record<PipelineStepId, string> = {
+    format: 'FORMAT',
+    typecheck: 'TYPECHECK',
+    tests: 'TESTS'
+  };
+  return labels[step];
 }
 
 const execFileAsync = promisify(execFile);

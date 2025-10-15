@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import url from 'node:url';
 import YAML from 'yaml';
 import Ajv, { ValidateFunction } from 'ajv';
 
@@ -162,8 +161,7 @@ function getValidator(): ValidateFunction<JournalData> {
 }
 
 function createValidator(): ValidateFunction<JournalData> {
-  const currentDir = path.dirname(url.fileURLToPath(import.meta.url));
-  const schemaPath = path.resolve(currentDir, '..', 'assets', 'schema', 'ai-commit-journal.schema.json');
+  const schemaPath = path.resolve(__dirname, '..', 'assets', 'schema', 'ai-commit-journal.schema.json');
   let schema: unknown;
   try {
     const schemaContent = readFileSync(schemaPath, 'utf8');

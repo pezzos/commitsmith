@@ -1,12 +1,8 @@
 import type * as vscode from 'vscode';
 
-export type GitExtension = {
-  readonly isActive: boolean;
-  readonly exports: {
-    getAPI(version: 1): API;
-  };
-  activate(): Promise<void>;
-};
+export interface GitExtension {
+  getAPI(version: 1): API;
+}
 
 export interface API {
   readonly activeRepository: Repository | undefined;
