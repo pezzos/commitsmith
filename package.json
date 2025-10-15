@@ -11,6 +11,7 @@
     "test:unit": "node ./scripts/test-unit-placeholder.mjs",
     "test:config": "npm run compile && node ./scripts/test-config.mjs",
     "test:git": "node --loader ts-node/esm ./scripts/test-git.ts",
+    "test:codex": "node --loader ts-node/esm ./scripts/test-codex.ts",
     "test:journal": "npm run compile && node ./scripts/test-journal.mjs",
     "lint": "echo \"No linting configured yet\""
   },

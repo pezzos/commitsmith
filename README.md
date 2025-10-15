@@ -12,6 +12,7 @@ npm run test:unit
 npm run test:config
 npm run test:journal
 npm run test:git
+npm run test:codex
 ```
 
 To iterate on the extension, launch the VS Code Extension Development Host (`F5`) once dependencies are installed. A placeholder `CommitSmith: Hello World` command is available from the command palette to verify activation.
