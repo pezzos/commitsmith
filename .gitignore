@@ -3,3 +3,4 @@ dist
 .vscode-test
 *.vsix
 .commit-smith/
+.ai-commit-journal.yml

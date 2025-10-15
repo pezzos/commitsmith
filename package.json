@@ -6,6 +6,10 @@
   "publisher": "epicsmith",
   "license": "MIT",
   "main": "./dist/extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pezzos/commitsmith.git"
+  },
   "scripts": {
     "compile": "tsc -p .",
     "test:unit": "node ./scripts/test-unit-placeholder.mjs",
