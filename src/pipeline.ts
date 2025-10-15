@@ -1,24 +1,36 @@
+import os from 'node:os';
 import { promisify } from 'node:util';
 import { exec, execFile } from 'node:child_process';
 import path from 'node:path';
-import { promises as fs } from 'node:fs';
+import { promises as fs, Dirent } from 'node:fs';
 import * as vscode from 'vscode';
 import minimatch from 'minimatch';
 
 import { getConfig } from './config';
-import { generateFix, FixContext } from './codex';
+import { generateFix, FixContext, AIPatch } from './codex';
 import { stageModified } from './utils/git';
 import { GitRepository } from './types/git';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 const OUTPUT_CHANNEL_NAME = 'CommitSmith';
+const GIT_DIFF_BUFFER = 20 * 1024 * 1024;
 
 export type PipelineStepId = 'format' | 'typecheck' | 'tests';
+export type PipelineMode = 'execute' | 'dry-run';
+
+export interface DryRunPatchInfo {
+  readonly step: PipelineStepId;
+  readonly files: string[];
+  readonly diff: string;
+  readonly meta?: AIPatch['meta'];
+}
 
 export interface PipelineOptions {
   readonly repo: GitRepository;
   readonly hooks?: PipelineHooks;
+  readonly mode?: PipelineMode;
+  readonly onDryRunPatch?: (info: DryRunPatchInfo) => Promise<void> | void;
 }
 
 export interface PipelineHooks {
@@ -61,6 +73,16 @@ export interface PipelineOutcome {
 interface StepDefinition {
   readonly id: PipelineStepId;
   readonly command: string;
+  readonly dryRunSkipReason?: string;
+}
+
+interface RepoSnapshot {
+  readonly stagedPatch: string;
+  readonly unstagedPatch: string;
+  readonly untrackedFiles: string[];
+  readonly untrackedDirs: string[];
+  readonly emptyDirs: string[];
+  readonly untrackedDir?: string;
 }
 
 const STEP_SEQUENCE: PipelineStepId[] = ['format', 'typecheck', 'tests'];
@@ -68,124 +90,215 @@ const STEP_SEQUENCE: PipelineStepId[] = ['format', 'typecheck', 'tests'];
 export async function runPipeline(options: PipelineOptions): Promise<PipelineOutcome> {
   const config = getConfig();
   const hooks = options.hooks ?? {};
+  const mode: PipelineMode = options.mode ?? 'execute';
+  const isDryRun = mode === 'dry-run';
 
   if (!config.pipelineEnable) {
     log(hooks, 'Pipeline disabled via configuration');
     return { status: 'skipped', suppressAutoPush: false };
   }
 
-  const stepDefinitions = buildStepDefinitions(config);
   const repoRoot = options.repo.rootUri.fsPath;
+  const stepDefinitions = await buildStepDefinitions(config, mode, repoRoot);
   const ignoreRules = await readIgnorePatterns(repoRoot);
   const outcome: PipelineOutcome = {
     status: 'completed',
     suppressAutoPush: false
   };
 
-  for (const step of stepDefinitions) {
-    let attempt = 0;
-    let success = false;
-    let lastResult: StepResult | undefined;
+  const snapshot = isDryRun ? await captureRepoSnapshot(repoRoot) : undefined;
 
-    hooks.onStepStart?.({ step: step.id, attempt });
-
-    while (attempt <= config.pipelineMaxAiFixAttempts && !success) {
-      const result = await executeStep(step, repoRoot, attempt);
-      lastResult = result;
-
-      if (result.success) {
-        success = true;
-        hooks.onStepComplete?.(result);
-
-        if (step.id === 'format' || attempt > 0) {
-          await stageRelevantChanges(options.repo, ignoreRules);
-        }
-        break;
+  try {
+    for (const step of stepDefinitions) {
+      const trimmedCommand = step.command.trim();
+      if (trimmedCommand.length === 0) {
+        const reason = step.dryRunSkipReason ?? 'No command configured; skipping.';
+        log(hooks, `[${formatStepLabel(step.id)} ⏭️] ${reason}`);
+        continue;
       }
+      const activeStep: StepDefinition = { ...step, command: trimmedCommand };
+      let attempt = 0;
+      let success = false;
+      let lastResult: StepResult | undefined;
 
-      if (attempt >= config.pipelineMaxAiFixAttempts) {
-        break;
-      }
-
-      const fixApplied = await attemptAiFix(step.id, result, repoRoot, ignoreRules, options.repo, hooks);
-      if (!fixApplied) {
-        break;
-      }
-
-      attempt += 1;
       hooks.onStepStart?.({ step: step.id, attempt });
-    }
 
-    if (!success) {
-      const failingResult = lastResult ?? {
-        step: step.id,
-        success: false,
-        stdout: '',
-        stderr: '',
-        attempt
-      };
+      while (attempt <= config.pipelineMaxAiFixAttempts && !success) {
+        const result = await executeStep(activeStep, repoRoot, attempt);
+        lastResult = result;
 
-      hooks.onStepComplete?.(failingResult);
+        if (result.success) {
+          success = true;
+          hooks.onStepComplete?.(result);
 
-      if (config.pipelineAbortOnFailure) {
-        outcome.status = 'aborted';
-        outcome.failedStep = step.id;
-        log(hooks, `Pipeline aborted on ${step.id}`);
-        return outcome;
+          if (!isDryRun && (step.id === 'format' || attempt > 0)) {
+            await stageRelevantChanges(options.repo, ignoreRules);
+          }
+          break;
+        }
+
+        if (attempt >= config.pipelineMaxAiFixAttempts) {
+          break;
+        }
+
+        const fixApplied = await attemptAiFix(
+          step.id,
+          result,
+          repoRoot,
+          ignoreRules,
+          options.repo,
+          hooks,
+          mode,
+          options.onDryRunPatch
+        );
+        if (!fixApplied) {
+          break;
+        }
+
+        if (isDryRun) {
+          success = true;
+          hooks.onStepComplete?.({ step: step.id, success: true, stdout: result.stdout, stderr: result.stderr, attempt: attempt + 1 });
+          break;
+        }
+
+        attempt += 1;
+        hooks.onStepStart?.({ step: step.id, attempt });
       }
 
-      const decisionEvent: PipelineDecisionEvent = {
-        step: step.id,
-        stderr: failingResult.stderr,
-        attempts: attempt,
-        commitAnnotation: `[pipeline failed at ${step.id}: see OUTPUT > CommitSmith]`,
-        suppressAutoPush: true
-      };
+      if (!success) {
+        const failingResult = lastResult ?? {
+          step: step.id,
+          success: false,
+          stdout: '',
+          stderr: '',
+          attempt
+        };
 
-      const decision = await resolveDecision(hooks, decisionEvent);
+        hooks.onStepComplete?.(failingResult);
 
-      if (decision === 'commitAnyway') {
-        outcome.status = 'commit-anyway';
-        outcome.failedStep = step.id;
-        outcome.commitAnnotation = decisionEvent.commitAnnotation;
-        outcome.suppressAutoPush = true;
-        log(hooks, `Pipeline continuing via commit-anyway decision after ${step.id}`);
-        return outcome;
-      }
-
-      if (decision === 'retry') {
-        const retryResult = await executeStep(step, repoRoot, attempt + 1);
-        hooks.onStepComplete?.(retryResult);
-
-        if (!retryResult.success) {
+        if (config.pipelineAbortOnFailure) {
           outcome.status = 'aborted';
           outcome.failedStep = step.id;
-          log(hooks, `Pipeline aborted after retry on ${step.id}`);
+          log(hooks, `Pipeline aborted on ${step.id}`);
           return outcome;
         }
 
-        await stageRelevantChanges(options.repo, ignoreRules);
-        continue;
-      }
+        const decisionEvent: PipelineDecisionEvent = {
+          step: step.id,
+          stderr: failingResult.stderr,
+          attempts: attempt,
+          commitAnnotation: `[pipeline failed at ${step.id}: see OUTPUT > CommitSmith]`,
+          suppressAutoPush: true
+        };
 
-      outcome.status = 'aborted';
-      outcome.failedStep = step.id;
-      log(hooks, `Pipeline aborted by decision on ${step.id}`);
-      return outcome;
+        const decision = await resolveDecision(hooks, decisionEvent);
+
+        if (decision === 'commitAnyway') {
+          outcome.status = 'commit-anyway';
+          outcome.failedStep = step.id;
+          outcome.commitAnnotation = decisionEvent.commitAnnotation;
+          outcome.suppressAutoPush = true;
+          log(hooks, `Pipeline continuing via commit-anyway decision after ${step.id}`);
+          return outcome;
+        }
+
+        if (decision === 'retry') {
+          const retryResult = await executeStep(step, repoRoot, attempt + 1);
+          hooks.onStepComplete?.(retryResult);
+
+          if (!retryResult.success) {
+            outcome.status = 'aborted';
+            outcome.failedStep = step.id;
+            log(hooks, `Pipeline aborted after retry on ${step.id}`);
+            return outcome;
+          }
+
+          if (!isDryRun) {
+            await stageRelevantChanges(options.repo, ignoreRules);
+          }
+          continue;
+        }
+
+        outcome.status = 'aborted';
+        outcome.failedStep = step.id;
+        log(hooks, `Pipeline aborted by decision on ${step.id}`);
+        return outcome;
+      }
+    }
+
+    return outcome;
+  } finally {
+    if (snapshot) {
+      await restoreRepoSnapshot(repoRoot, snapshot);
     }
   }
-
-  return outcome;
 }
 
-function buildStepDefinitions(config: ReturnType<typeof getConfig>): StepDefinition[] {
-  const commands: Record<PipelineStepId, string | undefined> = {
+async function buildStepDefinitions(
+  config: ReturnType<typeof getConfig>,
+  mode: PipelineMode,
+  cwd: string
+): Promise<StepDefinition[]> {
+  const commands: Record<PipelineStepId, string> = {
     format: config.formatCommand,
     typecheck: config.typecheckCommand,
     tests: config.testsCommand
-  } as unknown as Record<PipelineStepId, string | undefined>;
+  } as unknown as Record<PipelineStepId, string>;
 
-  return STEP_SEQUENCE.map((id) => ({ id, command: commands[id] ?? '' })).filter((step) => step.command.trim().length > 0);
+  const scripts = mode === 'dry-run' ? await getPackageScripts(cwd) : undefined;
+
+  return STEP_SEQUENCE.map((id) => {
+    const baseCommand = commands[id];
+
+    if (mode !== 'dry-run') {
+      return { id, command: baseCommand };
+    }
+
+    if (id === 'format') {
+      const result = translateFormatCommandForDryRun(baseCommand, scripts ?? new Set());
+      if (result.skip) {
+        return {
+          id,
+          command: '',
+          dryRunSkipReason: result.reason ?? `Skipping mutating command "${baseCommand}" during dry run.`
+        };
+      }
+      return { id, command: result.command };
+    }
+
+    return { id, command: baseCommand };
+  });
+}
+
+function translateFormatCommandForDryRun(command: string, scripts: Set<string>): { command: string; skip: boolean; reason?: string } {
+  const trimmed = command.trim();
+  if (!trimmed.startsWith('npm run ')) {
+    return {
+      command: '',
+      skip: true,
+      reason: `Cannot derive non-mutating variant for "${trimmed}" during dry run.`
+    };
+  }
+
+  const script = trimmed.replace('npm run ', '');
+  const base = script.replace(/:fix$/, '');
+  const checkCandidates = [
+    `${base}:check`,
+    script.endsWith(':fix') ? `${script.slice(0, -4)}check` : '',
+    `${base}:dry-run`
+  ].filter(Boolean);
+
+  for (const candidate of checkCandidates) {
+    if (scripts.has(candidate)) {
+      return { command: `npm run ${candidate}`, skip: false };
+    }
+  }
+
+  return {
+    command: '',
+    skip: true,
+    reason: `No non-mutating variant found for "${trimmed}".`
+  };
 }
 
 async function executeStep(step: StepDefinition, cwd: string, attempt: number): Promise<StepResult> {
@@ -210,7 +323,9 @@ async function attemptAiFix(
   repoRoot: string,
   ignoreRules: string[],
   repo: GitRepository,
-  hooks: PipelineHooks
+  hooks: PipelineHooks,
+  mode: PipelineMode,
+  onDryRunPatch?: (info: DryRunPatchInfo) => Promise<void> | void
 ): Promise<boolean> {
   try {
     const context: FixContext = {
@@ -223,7 +338,6 @@ async function attemptAiFix(
     const patch = await generateFix(context);
 
     const affectedFiles = extractPatchedFiles(patch.diff);
-
     const permittedFiles = affectedFiles.filter((file) => !isIgnored(file, ignoreRules));
 
     if (permittedFiles.length === 0) {
@@ -234,6 +348,11 @@ async function attemptAiFix(
     if (permittedFiles.length !== affectedFiles.length) {
       log(hooks, '[Codex] Patch includes ignored files; skipping application');
       return false;
+    }
+
+    if (mode === 'dry-run') {
+      await onDryRunPatch?.({ step, files: permittedFiles, diff: patch.diff, meta: patch.meta });
+      return true;
     }
 
     await applyPatch(repoRoot, patch.diff);
@@ -275,6 +394,7 @@ function extractPatchedFiles(diff: string): string[] {
       files.add(file);
     }
   }
+
   return Array.from(files);
 }
 
@@ -297,7 +417,7 @@ async function listChangedFiles(root: string): Promise<string[]> {
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
-      .map((line) => line.slice(3))
+      .map((line) => line.slice(3).trim())
       .filter(Boolean);
   } catch {
     return [];
@@ -328,6 +448,7 @@ async function resolveDecision(hooks: PipelineHooks, event: PipelineDecisionEven
   if (!hooks.onDecisionRequired) {
     return 'abort';
   }
+
   try {
     const decision = await hooks.onDecisionRequired(event);
     return decision;
@@ -342,10 +463,182 @@ function log(hooks: PipelineHooks, message: string): void {
   channel.appendLine(message);
 }
 
+function formatStepLabel(step: PipelineStepId): string {
+  switch (step) {
+    case 'format':
+      return 'FORMAT';
+    case 'typecheck':
+      return 'TYPECHECK';
+    case 'tests':
+      return 'TESTS';
+    default:
+      return step.toUpperCase();
+  }
+}
+
 let outputChannel: vscode.OutputChannel | undefined;
 function getOutputChannel(): vscode.OutputChannel {
   if (!outputChannel) {
     outputChannel = vscode.window.createOutputChannel(OUTPUT_CHANNEL_NAME);
   }
   return outputChannel;
+}
+
+async function getPackageScripts(cwd: string): Promise<Set<string>> {
+  try {
+    const packageJsonPath = path.join(cwd, 'package.json');
+    const contents = await fs.readFile(packageJsonPath, 'utf8');
+    const pkg = JSON.parse(contents) as { scripts?: Record<string, string> };
+    return new Set(Object.keys(pkg.scripts ?? {}));
+  } catch {
+    return new Set();
+  }
+}
+
+async function captureRepoSnapshot(cwd: string): Promise<RepoSnapshot> {
+  const [
+    { stdout: stagedPatch },
+    { stdout: unstagedPatch },
+    { stdout: untrackedStdout },
+    { stdout: statusStdout }
+  ] = await Promise.all([
+    execFileAsync('git', ['diff', '--binary', '--cached'], { cwd, maxBuffer: GIT_DIFF_BUFFER }),
+    execFileAsync('git', ['diff', '--binary'], { cwd, maxBuffer: GIT_DIFF_BUFFER }),
+    execFileAsync('git', ['ls-files', '--others', '--exclude-standard'], { cwd, maxBuffer: GIT_DIFF_BUFFER }),
+    execFileAsync('git', ['status', '--porcelain=v2', '-z'], { cwd, maxBuffer: GIT_DIFF_BUFFER })
+  ]);
+
+  const untrackedFiles = untrackedStdout.split('\n').map((line) => line.trim()).filter(Boolean);
+  const untrackedDirs = statusStdout
+    .split('\0')
+    .filter((entry) => entry.length > 0 && entry.startsWith('? '))
+    .map((entry) => entry.slice(2))
+    .filter((path) => path.endsWith('/'))
+    .map((path) => path.slice(0, -1));
+
+  let untrackedDir: string | undefined;
+  if (untrackedFiles.length > 0) {
+    untrackedDir = await fs.mkdtemp(path.join(os.tmpdir(), 'commit-smith-untracked-'));
+    for (const relativePath of untrackedFiles) {
+      const source = path.join(cwd, relativePath);
+      const destination = path.join(untrackedDir, relativePath);
+      await fs.mkdir(path.dirname(destination), { recursive: true });
+      await copyEntryPreservingSymlink(source, destination);
+    }
+  }
+
+  const emptyDirs = await collectEmptyDirectories(cwd);
+
+  return {
+    stagedPatch: stagedPatch,
+    unstagedPatch: unstagedPatch,
+    untrackedFiles,
+    untrackedDirs,
+    emptyDirs,
+    untrackedDir
+  };
+}
+
+async function restoreRepoSnapshot(cwd: string, snapshot: RepoSnapshot): Promise<void> {
+  await execAsync('git reset --hard', { cwd });
+  await execFileAsync('git', ['clean', '-fd', '-e', '.commit-smith', '-e', '.commit-smith/**'], { cwd });
+
+  if (snapshot.stagedPatch.trim().length > 0) {
+    await execFileAsync('git', ['apply', '--binary', '--index', '-'], { cwd, input: snapshot.stagedPatch });
+  }
+
+  if (snapshot.unstagedPatch.trim().length > 0) {
+    await execFileAsync('git', ['apply', '--binary', '-'], { cwd, input: snapshot.unstagedPatch });
+  }
+
+  if (snapshot.untrackedDir) {
+    for (const relativePath of snapshot.untrackedFiles) {
+      const source = path.join(snapshot.untrackedDir, relativePath);
+      const destination = path.join(cwd, relativePath);
+      await fs.mkdir(path.dirname(destination), { recursive: true });
+      await copyEntryPreservingSymlink(source, destination);
+    }
+    await fs.rm(snapshot.untrackedDir, { recursive: true, force: true });
+  }
+
+  const dirsToRestore = [...new Set([...snapshot.untrackedDirs, ...snapshot.emptyDirs])].sort((a, b) => a.length - b.length);
+  for (const dir of dirsToRestore) {
+    await fs.mkdir(path.join(cwd, dir), { recursive: true });
+  }
+}
+
+async function copyEntryPreservingSymlink(source: string, destination: string): Promise<void> {
+  const stats = await fs.lstat(source);
+  if (stats.isSymbolicLink()) {
+    const target = await fs.readlink(source);
+    let linkType: fs.symlink.Type | undefined;
+
+    if (process.platform === 'win32') {
+      try {
+        const targetStats = await fs.stat(source);
+        linkType = targetStats.isDirectory() ? 'junction' : 'file';
+      } catch {
+        linkType = 'file';
+      }
+    }
+
+    try {
+      await fs.symlink(target, destination, linkType);
+    } catch (error) {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (
+        process.platform === 'win32' &&
+        (linkType === undefined || linkType === 'file') &&
+        (nodeError.code === 'EPERM' || nodeError.code === 'EINVAL')
+      ) {
+        await fs.symlink(target, destination, 'junction');
+      } else {
+        throw error;
+      }
+    }
+    return;
+  }
+
+  await fs.copyFile(source, destination);
+}
+
+async function collectEmptyDirectories(root: string): Promise<string[]> {
+  const emptyDirs: string[] = [];
+
+  async function explore(relative: string): Promise<boolean> {
+    const fullPath = relative ? path.join(root, relative) : root;
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(fullPath, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+
+    let hasContent = false;
+    for (const entry of entries) {
+      if (entry.name === '.git') {
+        hasContent = true;
+        continue;
+      }
+      const nextRelative = relative ? path.join(relative, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        const childEmpty = await explore(nextRelative);
+        if (!childEmpty) {
+          hasContent = true;
+        }
+      } else {
+        hasContent = true;
+      }
+    }
+
+    if (!hasContent && relative) {
+      emptyDirs.push(relative);
+      return true;
+    }
+
+    return !hasContent;
+  }
+
+  await explore('');
+  return emptyDirs;
 }

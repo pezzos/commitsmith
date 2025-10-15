@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { initializeConfigWatcher, onDidChangeConfig } from './config';
 import { getRepo } from './utils/git';
 import { forgeCommitFromJournal } from './workflows/forgeCommit';
+import { performDryRun } from './workflows/dryRun';
 import { PipelineDecisionEvent, PipelineDecision } from './pipeline';
 import { initializeJournal, clearCurrent } from './journal';
 import { onCodexOfflineFallback } from './codex';
@@ -34,7 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(COMMAND_GENERATE, () => handleGenerateFromJournal(outputChannel)),
     vscode.commands.registerCommand(COMMAND_CLEAR, handleClearJournal),
     vscode.commands.registerCommand(COMMAND_INSTALL_HOOKS, handleInstallHooks),
-    vscode.commands.registerCommand(COMMAND_DRY_RUN, handleDryRun)
+    vscode.commands.registerCommand(COMMAND_DRY_RUN, () => handleDryRun(outputChannel))
   );
 }
 
@@ -111,8 +112,44 @@ function handleInstallHooks(): void {
   vscode.window.showInformationMessage('CommitSmith hooks installation is coming soon.');
 }
 
-function handleDryRun(): void {
-  vscode.window.showInformationMessage('CommitSmith dry-run mode is coming soon.');
+async function handleDryRun(outputChannel: vscode.OutputChannel): Promise<void> {
+  try {
+    const repo = await getRepo();
+
+    const result = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'CommitSmith: dry run',
+        cancellable: false
+      },
+      async () =>
+        performDryRun({
+          repo,
+          log: (message) => outputChannel.appendLine(message),
+          promptDecision: (event) => promptForDecision(event)
+        })
+    );
+
+    switch (result.status) {
+      case 'empty':
+        vscode.window.showInformationMessage('CommitSmith journal is empty – nothing to simulate.');
+        return;
+      case 'aborted':
+        vscode.window.showWarningMessage(
+          `Dry run aborted ${result.failedStep ? `at ${result.failedStep}` : ''}. Artefacts saved to ${result.folder}.`
+        );
+        return;
+      case 'completed':
+        vscode.window.showInformationMessage(`Dry run completed. Artefacts saved to ${result.folder}.`);
+        return;
+      case 'error':
+        vscode.window.showErrorMessage(`CommitSmith dry run failed: ${result.message}`);
+        return;
+    }
+  } catch (error) {
+    outputChannel.appendLine(`[ERROR] ${(error as Error).message}`);
+    vscode.window.showErrorMessage(`CommitSmith dry run failed: ${(error as Error).message}`);
+  }
 }
 
 async function promptForDecision(event: PipelineDecisionEvent): Promise<PipelineDecision> {

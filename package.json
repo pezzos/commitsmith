@@ -14,7 +14,8 @@
     "test:codex": "node --loader ts-node/esm ./scripts/test-codex.ts",
     "test:journal": "npm run compile && node ./scripts/test-journal.mjs",
     "test:pipeline": "npm run compile && node ./scripts/test-pipeline.mjs",
-    "test:integration": "npm run compile && node --loader ts-node/esm ./scripts/test-integration.ts",
+    "test:integration": "npm run compile && node ./scripts/test-integration.mjs",
+    "test:dry-run": "npm run compile && node ./scripts/test-dry-run.mjs",
     "lint": "echo \"No linting configured yet\""
   },
   "engines": {

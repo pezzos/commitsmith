@@ -20,6 +20,7 @@ export interface JournalData {
 
 export interface JournalOptions {
   readonly root?: string;
+  readonly createIfMissing?: boolean;
 }
 
 const JOURNAL_FILENAME = '.ai-commit-journal.yml';
@@ -34,6 +35,17 @@ export function getJournalPath(options?: JournalOptions): string {
 
 export async function initializeJournal(options?: JournalOptions): Promise<void> {
   const journalPath = getJournalPath(options);
+  if (options?.createIfMissing === false) {
+    try {
+      await fs.access(journalPath);
+    } catch (error) {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (nodeError.code !== 'ENOENT') {
+        throw error;
+      }
+    }
+    return;
+  }
 
   try {
     await fs.access(journalPath);
@@ -48,8 +60,22 @@ export async function initializeJournal(options?: JournalOptions): Promise<void>
 }
 
 export async function readJournal(options?: JournalOptions): Promise<JournalData> {
-  await initializeJournal(options);
+  const createIfMissing = options?.createIfMissing ?? true;
+  if (createIfMissing) {
+    await initializeJournal(options);
+  }
   const journalPath = getJournalPath(options);
+  if (!createIfMissing) {
+    try {
+      await fs.access(journalPath);
+    } catch (error) {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (nodeError.code === 'ENOENT') {
+        return { current: [], meta: {} };
+      }
+      throw error;
+    }
+  }
 
   let rawContent: string;
   try {
