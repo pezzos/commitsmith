@@ -10,11 +10,23 @@ type OutputChannel = {
 };
 
 let outputChannel: OutputChannel | undefined;
+let repositoryWarningShown = false;
 
 export async function getRepo(): Promise<GitRepository> {
   const repository = await resolveRepository();
   if (!repository) {
-    throw new Error('No active Git repository was found in the current workspace.');
+    const actionableMessage =
+      'CommitSmith needs an initialized Git repository. Open a folder that already contains a .git directory or run “Git: Initialize Repository”.';
+    logError('No Git repository detected in the current workspace.');
+    if (!repositoryWarningShown) {
+      repositoryWarningShown = true;
+      void vscode.window.showErrorMessage(actionableMessage, 'Initialize Repository').then((selection) => {
+        if (selection === 'Initialize Repository') {
+          void vscode.commands.executeCommand('git.init');
+        }
+      });
+    }
+    throw new Error(actionableMessage);
   }
 
   return repository;
@@ -65,7 +77,7 @@ async function resolveRepository(): Promise<GitRepository | undefined> {
     return undefined;
   }
 
-  return gitApi.activeRepository;
+  return gitApi.activeRepository ?? gitApi.repositories[0];
 }
 
 async function getGitApi(): Promise<GitApi | undefined> {

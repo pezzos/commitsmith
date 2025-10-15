@@ -16,7 +16,7 @@
     "test:pipeline": "npm run compile && node ./scripts/test-pipeline.mjs",
     "test:integration": "npm run compile && node ./scripts/test-integration.mjs",
     "test:dry-run": "npm run compile && node ./scripts/test-dry-run.mjs",
-    "test:offline": "npm run compile && node --loader ts-node/esm ./scripts/test-offline.ts",
+    "test:offline": "npm run compile && node ./scripts/test-offline.mjs",
     "lint": "echo \"No linting configured yet\""
   },
   "engines": {
