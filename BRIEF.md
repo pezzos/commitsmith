@@ -62,7 +62,7 @@ When you hit the **AI Commit** button, CommitSmith:
 * Codex updates it after each task via the extension-provided CLI helper (CommitSmith never self-appends):
 
   ```
-  commit-smith journal --append "refactor: split job runner into scheduler/worker/utils"
+  commit-smith journal --append "refactor: split job runner into scheduler/worker/utils" --meta scope=jobs-service --meta ticket=T1335
   ```
 * CommitSmith reads and clears it upon successful commit.
 

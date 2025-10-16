@@ -13,7 +13,7 @@ const journalModule = await import(path.join(distPath, 'journal.js'));
 const agentsModule = await import(path.join(distPath, 'agents.js'));
 
 const { getInitializationStatus, initializeRepository } = initializerModule;
-const { initializeJournal } = journalModule;
+const { initializeJournal, updateJournalMeta, readJournal } = journalModule;
 const { ensureJournalWorkflowSection } = agentsModule;
 
 console.info('Running initialization unit tests...');
@@ -35,8 +35,8 @@ assert.equal(firstRun.steps.length, 3);
 assert.ok(firstRun.steps.some((step) => step.changed === true));
 
 const journalPath = path.join(baseDir, '.ai-commit-journal.yml');
-const generatedJournal = await readFile(journalPath, 'utf8');
-assert.equal(generatedJournal, 'current: []\nmeta: {}\n');
+const initialJournal = await readFile(journalPath, 'utf8');
+assert.equal(initialJournal, 'current: []\nmeta: {}\n');
 
 const gitignorePath = path.join(baseDir, '.gitignore');
 const generatedGitignore = await readFile(gitignorePath, 'utf8');
@@ -47,6 +47,14 @@ assert.match(generatedAgents, /^##\s+CommitSmith Journal Workflow/m);
 assert.match(generatedAgents, /commitsmith-journal-workflow/);
 const headingOccurrences = generatedAgents.split('## CommitSmith Journal Workflow').length - 1;
 assert.equal(headingOccurrences, 1);
+assert.match(generatedAgents, /commit-smith journal --append/);
+assert.match(generatedAgents, /--meta scope=/);
+
+await updateJournalMeta({ scope: 'payments', ticket: 'T123' }, { root: baseDir });
+const journalWithMeta = await readJournal({ root: baseDir });
+assert.equal(journalWithMeta.meta?.scope, 'payments');
+assert.equal(journalWithMeta.meta?.ticket, 'T123');
+const journalAfterMeta = await readFile(journalPath, 'utf8');
 
 const secondRun = await initializeRepository({ root: baseDir, log: () => {} });
 assert.equal(secondRun.status.needsInitialization, false);
@@ -56,7 +64,7 @@ for (const step of secondRun.steps) {
 const gitignoreAfterSecondRun = await readFile(gitignorePath, 'utf8');
 assert.equal(generatedGitignore, gitignoreAfterSecondRun);
 const journalAfterSecondRun = await readFile(journalPath, 'utf8');
-assert.equal(generatedJournal, journalAfterSecondRun);
+assert.equal(journalAfterMeta, journalAfterSecondRun);
 
 // Journal detection
 const journalDir = await mkdtemp(path.join(os.tmpdir(), 'commit-smith-init-journal-'));
@@ -152,6 +160,7 @@ assert.equal(firstAgents.changed, true);
 const agentsContent = await readFile(path.join(agentsDir, 'AGENTS.md'), 'utf8');
 assert.match(agentsContent, /^##\s+CommitSmith Journal Workflow/m);
 assert.match(agentsContent, /commit-smith journal --append/);
+assert.match(agentsContent, /--meta scope=/);
 const secondAgents = await ensureJournalWorkflowSection(agentsDir);
 assert.equal(secondAgents.changed, false);
 const agentsContentAfter = await readFile(path.join(agentsDir, 'AGENTS.md'), 'utf8');

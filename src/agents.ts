@@ -39,10 +39,12 @@ export async function ensureJournalWorkflowSection(root: string): Promise<Agents
     '',
     'CommitSmith relies on `.ai-commit-journal.yml` to store Codex-authored change summaries. Run the initializer command `CommitSmith: Initialize CommitSmith` (`commitSmith.initializeRepo`) if this file is missing.',
     '',
-    'At the end of each task, Codex MUST append journal entries via the CLI (CommitSmith never self-appends):',
+    'At the end of each task, Codex MUST append journal entries via the CLI (CommitSmith never self-appends). Include `--meta key=value` flags to capture scope, tickets, or other context when available:',
     '```bash',
-    'commit-smith journal --append "feat: add payment retries"',
+    'commit-smith journal --append "feat: add payment retries" --meta scope=payments --meta ticket=T123',
     '```',
+    '',
+    'Re-run the initializer after repo resets or whenever `.ai-commit-journal.yml`, `.gitignore`, or this guidance disappears.',
     ''
   ];
 

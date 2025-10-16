@@ -22,6 +22,10 @@ export interface JournalOptions {
   readonly createIfMissing?: boolean;
 }
 
+export interface JournalMetaUpdate {
+  readonly [key: string]: unknown;
+}
+
 const JOURNAL_FILENAME = '.ai-commit-journal.yml';
 const DEFAULT_JOURNAL: JournalData = { current: [], meta: {} };
 
@@ -109,6 +113,23 @@ export async function addEntry(entry: string, options?: JournalOptions): Promise
   const journalPath = getJournalPath(options);
   const journal = await readJournal(options);
   journal.current.push(entry.trim());
+  await writeJournal(journal, journalPath);
+}
+
+export async function updateJournalMeta(metaUpdates: JournalMetaUpdate, options?: JournalOptions): Promise<void> {
+  const keys = Object.keys(metaUpdates);
+  if (keys.length === 0) {
+    return;
+  }
+
+  const journalPath = getJournalPath(options);
+  const journal = await readJournal(options);
+  const currentMeta = sanitizeMeta(journal.meta);
+  const merged = { ...currentMeta } as Record<string, unknown>;
+  for (const key of keys) {
+    merged[key] = metaUpdates[key];
+  }
+  journal.meta = merged as JournalMeta;
   await writeJournal(journal, journalPath);
 }
 
