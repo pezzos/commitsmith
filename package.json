@@ -2,7 +2,7 @@
   "name": "commit-smith",
   "displayName": "CommitSmith",
   "description": "Forge high-quality commits with Codex-assisted workflows.",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "epicsmith",
   "license": "MIT",
   "main": "./dist/extension.js",
@@ -30,7 +30,9 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:.git"
+    "workspaceContains:.git",
+    "onCommand:commitSmith.initializeRepo",
+    "onCommand:commitSmith.codexBootstrap"
   ],
   "bin": {
     "commit-smith": "./bin/commit-smith.js"
@@ -135,6 +137,11 @@
       {
         "command": "commitSmith.initializeRepo",
         "title": "CommitSmith: Initialize CommitSmith",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.codexBootstrap",
+        "title": "CommitSmith: Run Codex Onboarding",
         "category": "CommitSmith"
       }
     ],

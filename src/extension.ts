@@ -7,12 +7,14 @@ import { PipelineDecisionEvent, PipelineDecision } from './pipeline';
 import { initializeJournal, clearCurrent } from './journal';
 import { getInitializationStatus, initializeRepository } from './initializer';
 import { onCodexOfflineFallback } from './codex';
+import { offerCodexBootstrap, executeCodexBootstrap } from './bootstrap';
 
 const COMMAND_GENERATE = 'commitSmith.generateFromJournal';
 const COMMAND_CLEAR = 'commitSmith.clearJournal';
 const COMMAND_INSTALL_HOOKS = 'commitSmith.installHooks';
 const COMMAND_INITIALIZE = 'commitSmith.initializeRepo';
 const COMMAND_DRY_RUN = 'commitSmith.dryRun';
+const COMMAND_BOOTSTRAP = 'commitSmith.codexBootstrap';
 const OUTPUT_CHANNEL_NAME = 'CommitSmith';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -38,10 +40,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(COMMAND_CLEAR, handleClearJournal),
     vscode.commands.registerCommand(COMMAND_INSTALL_HOOKS, handleInstallHooks),
     vscode.commands.registerCommand(COMMAND_DRY_RUN, () => handleDryRun(outputChannel)),
-    vscode.commands.registerCommand(COMMAND_INITIALIZE, () => handleInitializeRepo(outputChannel))
+    vscode.commands.registerCommand(COMMAND_INITIALIZE, () => handleInitializeRepo(context, outputChannel)),
+    vscode.commands.registerCommand(COMMAND_BOOTSTRAP, () => handleCodexBootstrap(context, outputChannel))
   );
 
-  void promptForInitializationIfNeeded(outputChannel);
+  void promptForInitializationIfNeeded(context, outputChannel);
 }
 
 export function deactivate(): void {
@@ -117,14 +120,25 @@ function handleInstallHooks(): void {
   vscode.window.showInformationMessage('CommitSmith hooks installation is coming soon.');
 }
 
-async function handleInitializeRepo(outputChannel: vscode.OutputChannel): Promise<void> {
+async function handleInitializeRepo(context: vscode.ExtensionContext, outputChannel: vscode.OutputChannel): Promise<void> {
   try {
-    const repo = await getRepo();
-    await runInitializationFlow(repo.rootUri.fsPath, outputChannel);
+    const repo = await getRepo({ suppressInitializationReminder: true });
+    await runInitializationFlow(context, repo.rootUri.fsPath, outputChannel, { origin: 'manual-command' });
   } catch (error) {
     const message = (error as Error).message;
     outputChannel.appendLine(`[INIT][error] ${message}`);
     vscode.window.showErrorMessage(`CommitSmith initialization failed: ${message}`);
+  }
+}
+
+async function handleCodexBootstrap(context: vscode.ExtensionContext, outputChannel: vscode.OutputChannel): Promise<void> {
+  try {
+    const repo = await getRepo({ suppressInitializationReminder: true });
+    await executeCodexBootstrap(context, repo.rootUri.fsPath, outputChannel);
+  } catch (error) {
+    const message = (error as Error).message;
+    outputChannel.appendLine(`[BOOTSTRAP][error] ${message}`);
+    vscode.window.showErrorMessage(`Codex onboarding failed: ${message}`);
   }
 }
 
@@ -186,11 +200,15 @@ async function promptForDecision(event: PipelineDecisionEvent): Promise<Pipeline
   return 'abort';
 }
 
-async function promptForInitializationIfNeeded(outputChannel: vscode.OutputChannel): Promise<void> {
+async function promptForInitializationIfNeeded(
+  context: vscode.ExtensionContext,
+  outputChannel: vscode.OutputChannel
+): Promise<void> {
   try {
-    const repo = await getRepo();
+    const repo = await getRepo({ suppressInitializationReminder: true });
     const status = await getInitializationStatus(repo.rootUri.fsPath);
     if (!status.needsInitialization) {
+      await offerCodexBootstrap(context, repo.rootUri.fsPath, outputChannel);
       return;
     }
 
@@ -201,7 +219,7 @@ async function promptForInitializationIfNeeded(outputChannel: vscode.OutputChann
     );
 
     if (choice === 'Initialize CommitSmith') {
-      await runInitializationFlow(repo.rootUri.fsPath, outputChannel);
+      await runInitializationFlow(context, repo.rootUri.fsPath, outputChannel, { origin: 'activation' });
     }
   } catch (error) {
     const message = (error as Error).message;
@@ -213,7 +231,16 @@ async function promptForInitializationIfNeeded(outputChannel: vscode.OutputChann
   }
 }
 
-async function runInitializationFlow(repoRoot: string, outputChannel: vscode.OutputChannel): Promise<void> {
+interface InitializationFlowOptions {
+  readonly origin: 'activation' | 'manual-command';
+}
+
+async function runInitializationFlow(
+  context: vscode.ExtensionContext,
+  repoRoot: string,
+  outputChannel: vscode.OutputChannel,
+  options: InitializationFlowOptions
+): Promise<void> {
   outputChannel.appendLine(`[INIT] commitSmith.initializeRepo invoked for ${repoRoot}`);
   const result = await vscode.window.withProgress(
     {
@@ -239,5 +266,6 @@ async function runInitializationFlow(repoRoot: string, outputChannel: vscode.Out
     );
   } else {
     vscode.window.showInformationMessage('CommitSmith setup complete.');
+    await offerCodexBootstrap(context, repoRoot, outputChannel, { force: options.origin === 'manual-command' });
   }
 }

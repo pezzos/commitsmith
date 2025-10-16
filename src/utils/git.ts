@@ -18,7 +18,11 @@ let initializationReminderShown = false;
 const GIT_RESOLUTION_TIMEOUT_MS = 20000;
 const GIT_RESOLUTION_INTERVAL_MS = 2000;
 
-export async function getRepo(): Promise<GitRepository> {
+export interface GetRepoOptions {
+  readonly suppressInitializationReminder?: boolean;
+}
+
+export async function getRepo(options?: GetRepoOptions): Promise<GitRepository> {
   const workspaceHasGit = await workspaceHasGitRepository();
   logInfo(`[git] workspaceHasGit=${workspaceHasGit}`);
 
@@ -62,9 +66,11 @@ export async function getRepo(): Promise<GitRepository> {
   }
 
   logInfo(`[git] Using repository at ${repository.rootUri.fsPath}`);
-  void remindInitializationIfNeeded(repository).catch((error) => {
-    logError('Failed to check CommitSmith initialization status', error);
-  });
+  if (!options?.suppressInitializationReminder) {
+    void remindInitializationIfNeeded(repository).catch((error) => {
+      logError('Failed to check CommitSmith initialization status', error);
+    });
+  }
   return repository;
 }
 

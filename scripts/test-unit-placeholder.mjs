@@ -165,5 +165,7 @@ assert.equal(generateCommand.shortTitle, '⚒️');
 assert.equal(generateCommand.icon, '$(tools)');
 const initializeCommand = packageJson.contributes.commands.find((cmd) => cmd.command === 'commitSmith.initializeRepo');
 assert.equal(initializeCommand.title, 'CommitSmith: Initialize CommitSmith');
+const bootstrapCommand = packageJson.contributes.commands.find((cmd) => cmd.command === 'commitSmith.codexBootstrap');
+assert.equal(bootstrapCommand.title, 'CommitSmith: Run Codex Onboarding');
 
 console.info('Initialization unit tests passed');
