@@ -151,6 +151,7 @@ const firstAgents = await ensureJournalWorkflowSection(agentsDir);
 assert.equal(firstAgents.changed, true);
 const agentsContent = await readFile(path.join(agentsDir, 'AGENTS.md'), 'utf8');
 assert.match(agentsContent, /^##\s+CommitSmith Journal Workflow/m);
+assert.match(agentsContent, /commit-smith journal --append/);
 const secondAgents = await ensureJournalWorkflowSection(agentsDir);
 assert.equal(secondAgents.changed, false);
 const agentsContentAfter = await readFile(path.join(agentsDir, 'AGENTS.md'), 'utf8');

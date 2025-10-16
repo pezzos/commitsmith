@@ -306,7 +306,7 @@ If a future ticket needs improvement, note it.
 Agents (Codex/Ops) need clear instructions on updating the journal and running the initializer. `AGENTS.md` currently lacks guidance, causing inconsistent workflows.
 
 **Scope**
-- Create `AGENTS.md` if missing, then append a `## CommitSmith Journal Workflow` section explaining the journal lifecycle, the initializer command ID (`commitSmith.initializeRepo`), and the exact `codex journal --append "<entry>"` workflow from BRIEF §4 (including usage example), plus guidance on when to rerun initialization after repo resets.
+- Create `AGENTS.md` if missing, then append a `## CommitSmith Journal Workflow` section explaining the journal lifecycle, the initializer command ID (`commitSmith.initializeRepo`), and the exact `commit-smith journal --append "<entry>"` workflow from BRIEF §4 (including usage example), plus guidance on when to rerun initialization after repo resets.
 - Add a lightweight automated guard that proves the AGENTS guidance writer is idempotent so Ticket 10 can invoke it repeatedly without diffs.
 - Ensure the section is added exactly once, formatted consistently with existing guidance.
 
@@ -319,7 +319,7 @@ Agents (Codex/Ops) need clear instructions on updating the journal and running t
 If a future ticket needs improvement, note it.
 
 **Acceptance criteria**
-- `AGENTS.md` contains an explicit `## CommitSmith Journal Workflow` section covering `.ai-commit-journal.yml`, the initializer command ID (`commitSmith.initializeRepo`), and the `codex journal --append "<entry>"` workflow (with usage example), plus guidance on rerunning initialization after repo resets.
+- `AGENTS.md` contains an explicit `## CommitSmith Journal Workflow` section covering `.ai-commit-journal.yml`, the initializer command ID (`commitSmith.initializeRepo`), and the `commit-smith journal --append "<entry>"` workflow (with usage example), plus guidance on rerunning initialization after repo resets.
 - Running the initializer when the section already exists leaves the file untouched (no duplicate blocks), verified by automated idempotency tests.
 - Automated guard proves the writer is idempotent under repeated runs (supporting Ticket 10's repeated invocations).
 - Formatting matches the established style in `AGENTS.md`.
