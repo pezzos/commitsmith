@@ -8,6 +8,7 @@ import { initializeJournal, clearCurrent } from './journal';
 import { getInitializationStatus, initializeRepository } from './initializer';
 import { onCodexOfflineFallback } from './codex';
 import { offerCodexBootstrap, executeCodexBootstrap } from './bootstrap';
+import { getOutputChannel, isVscodeOutputChannel, OutputChannelLike } from './output';
 
 const COMMAND_GENERATE = 'commitSmith.generateFromJournal';
 const COMMAND_CLEAR = 'commitSmith.clearJournal';
@@ -15,13 +16,14 @@ const COMMAND_INSTALL_HOOKS = 'commitSmith.installHooks';
 const COMMAND_INITIALIZE = 'commitSmith.initializeRepo';
 const COMMAND_DRY_RUN = 'commitSmith.dryRun';
 const COMMAND_BOOTSTRAP = 'commitSmith.codexBootstrap';
-const OUTPUT_CHANNEL_NAME = 'CommitSmith';
 
 export function activate(context: vscode.ExtensionContext): void {
   initializeConfigWatcher(context);
 
-  const outputChannel = vscode.window.createOutputChannel(OUTPUT_CHANNEL_NAME);
-  context.subscriptions.push(outputChannel);
+  const outputChannel = getOutputChannel();
+  if (isVscodeOutputChannel(outputChannel)) {
+    context.subscriptions.push(outputChannel);
+  }
 
   const codexFallbackDisposable = onCodexOfflineFallback((event) => {
     const reason = event.reason === 'timeout' ? 'Codex request timed out' : event.reason === 'network' ? 'Codex request failed' : `Codex returned HTTP ${event.status}`;
@@ -51,7 +53,7 @@ export function deactivate(): void {
   // Disposables are tracked in activate.
 }
 
-async function handleGenerateFromJournal(outputChannel: vscode.OutputChannel): Promise<void> {
+async function handleGenerateFromJournal(outputChannel: OutputChannelLike): Promise<void> {
   try {
     const repo = await getRepo();
     await initializeJournal({ root: repo.rootUri.fsPath });
@@ -120,7 +122,7 @@ function handleInstallHooks(): void {
   vscode.window.showInformationMessage('CommitSmith hooks installation is coming soon.');
 }
 
-async function handleInitializeRepo(context: vscode.ExtensionContext, outputChannel: vscode.OutputChannel): Promise<void> {
+async function handleInitializeRepo(context: vscode.ExtensionContext, outputChannel: OutputChannelLike): Promise<void> {
   try {
     const repo = await getRepo({ suppressInitializationReminder: true });
     await runInitializationFlow(context, repo.rootUri.fsPath, outputChannel, { origin: 'manual-command' });
@@ -131,7 +133,7 @@ async function handleInitializeRepo(context: vscode.ExtensionContext, outputChan
   }
 }
 
-async function handleCodexBootstrap(context: vscode.ExtensionContext, outputChannel: vscode.OutputChannel): Promise<void> {
+async function handleCodexBootstrap(context: vscode.ExtensionContext, outputChannel: OutputChannelLike): Promise<void> {
   try {
     const repo = await getRepo({ suppressInitializationReminder: true });
     await executeCodexBootstrap(context, repo.rootUri.fsPath, outputChannel);
@@ -142,7 +144,7 @@ async function handleCodexBootstrap(context: vscode.ExtensionContext, outputChan
   }
 }
 
-async function handleDryRun(outputChannel: vscode.OutputChannel): Promise<void> {
+async function handleDryRun(outputChannel: OutputChannelLike): Promise<void> {
   try {
     const repo = await getRepo();
 
@@ -202,7 +204,7 @@ async function promptForDecision(event: PipelineDecisionEvent): Promise<Pipeline
 
 async function promptForInitializationIfNeeded(
   context: vscode.ExtensionContext,
-  outputChannel: vscode.OutputChannel
+  outputChannel: OutputChannelLike
 ): Promise<void> {
   try {
     const repo = await getRepo({ suppressInitializationReminder: true });
@@ -238,7 +240,7 @@ interface InitializationFlowOptions {
 async function runInitializationFlow(
   context: vscode.ExtensionContext,
   repoRoot: string,
-  outputChannel: vscode.OutputChannel,
+  outputChannel: OutputChannelLike,
   options: InitializationFlowOptions
 ): Promise<void> {
   outputChannel.appendLine(`[INIT] commitSmith.initializeRepo invoked for ${repoRoot}`);

@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import * as vscode from 'vscode';
+import { OutputChannelLike } from './output';
 
 const STATE_KEY_PREFIX = 'commitSmith.codexBootstrap.';
 const TERMINAL_NAME = 'CommitSmith Codex Onboarding';
@@ -15,7 +16,7 @@ interface OfferOptions {
 export async function offerCodexBootstrap(
   context: vscode.ExtensionContext,
   repoRoot: string,
-  outputChannel: vscode.OutputChannel,
+  outputChannel: OutputChannelLike,
   options?: OfferOptions
 ): Promise<void> {
   const key = stateKey(repoRoot);
@@ -61,7 +62,7 @@ export async function offerCodexBootstrap(
 export async function executeCodexBootstrap(
   context: vscode.ExtensionContext,
   repoRoot: string,
-  outputChannel: vscode.OutputChannel
+  outputChannel: OutputChannelLike
 ): Promise<void> {
   const key = stateKey(repoRoot);
   const agentsExists = await hasAgentsGuidance(repoRoot);
@@ -75,8 +76,8 @@ export async function executeCodexBootstrap(
   terminal.show(true);
 
   const prompt =
-    'Read AGENTS.md and adopt the "CommitSmith Journal Workflow" guidance. Confirm you will run `commit-smith journal --append "<entry>"` (with any needed `--meta key=value` flags) after every task and rerun `CommitSmith: Initialize CommitSmith` if the journal, .gitignore entry, or guidance are missing. Reply ACKNOWLEDGED when ready.';
-  const command = `codex --cd ${shellQuote(repoRoot)} ${shellQuote(prompt)}`;
+    'Read AGENTS.md and adopt the "CommitSmith Journal Workflow" guidance. Confirm you will run `commit-smith journal --append "<entry>"` (with any needed `--meta key=value` flags to keep scope, ticket, ticketFromBranch, and style up to date) after every task and rerun `CommitSmith: Initialize CommitSmith` if the journal, .gitignore entry, or guidance are missing. Reply ACKNOWLEDGED when ready.';
+  const command = `codex --cd ${shellQuote(repoRoot)} -p ${shellQuote(prompt)}`;
   terminal.sendText(command, true);
 
   outputChannel.appendLine('[INIT][codex] Launched Codex onboarding prompt in the integrated terminal.');

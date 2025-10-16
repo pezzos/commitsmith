@@ -4,14 +4,8 @@ import * as vscode from 'vscode';
 import { GitRepository } from '../types/git';
 import type { API as GitApi, GitExtension } from './internal/git';
 import { getInitializationStatus } from '../initializer';
+import { getOutputChannel } from '../output';
 
-const OUTPUT_CHANNEL_NAME = 'CommitSmith';
-
-type OutputChannel = {
-  appendLine(value: string): void;
-};
-
-let outputChannel: OutputChannel | undefined;
 let repositoryWarningShown = false;
 let initializationReminderShown = false;
 
@@ -158,18 +152,6 @@ function logError(message: string, error?: unknown): void {
 function logInfo(message: string): void {
   const channel = getOutputChannel();
   channel.appendLine(`[CommitSmith][git] ${message}`);
-}
-
-function getOutputChannel(): OutputChannel {
-  if (outputChannel) {
-    return outputChannel;
-  }
-
-  outputChannel = vscode.window?.createOutputChannel?.(OUTPUT_CHANNEL_NAME) ?? {
-    appendLine: (value: string) => console.error(value)
-  };
-
-  return outputChannel;
 }
 
 async function resolveRepositoryWithRetry(): Promise<GitRepository | undefined> {

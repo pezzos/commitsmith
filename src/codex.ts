@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { getConfig } from './config';
+import { getOutputChannel } from './output';
 import { JournalData } from './journal';
 
 export type PipelineStep = 'format' | 'typecheck' | 'tests';
@@ -28,8 +29,6 @@ export interface CodexOfflineFallbackEvent {
   readonly status?: number;
   readonly error?: Error;
 }
-
-const OUTPUT_CHANNEL_NAME = 'CommitSmith';
 
 const offlineFallbackEmitter = new vscode.EventEmitter<CodexOfflineFallbackEvent>();
 export const onCodexOfflineFallback = offlineFallbackEmitter.event;
@@ -170,16 +169,7 @@ function handleRequestError(error: Error): void {
 }
 
 function log(message: string): void {
-  const channel = getOutputChannel();
-  channel.appendLine(message);
-}
-
-let outputChannel: vscode.OutputChannel | undefined;
-function getOutputChannel(): vscode.OutputChannel {
-  if (!outputChannel) {
-    outputChannel = vscode.window.createOutputChannel(OUTPUT_CHANNEL_NAME);
-  }
-  return outputChannel;
+  getOutputChannel().appendLine(message);
 }
 
 class CodexHttpError extends Error {

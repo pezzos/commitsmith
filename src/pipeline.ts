@@ -3,17 +3,16 @@ import { promisify } from 'node:util';
 import { exec, execFile } from 'node:child_process';
 import path from 'node:path';
 import { promises as fs, Dirent } from 'node:fs';
-import * as vscode from 'vscode';
 import { minimatch } from 'minimatch';
 
 import { getConfig } from './config';
 import { generateFix, FixContext, AIPatch } from './codex';
 import { stageModified } from './utils/git';
+import { getOutputChannel } from './output';
 import { GitRepository } from './types/git';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
-const OUTPUT_CHANNEL_NAME = 'CommitSmith';
 const GIT_DIFF_BUFFER = 20 * 1024 * 1024;
 
 export type PipelineStepId = 'format' | 'typecheck' | 'tests';
@@ -455,20 +454,11 @@ async function resolveDecision(hooks: PipelineHooks, event: PipelineDecisionEven
 
 function log(hooks: PipelineHooks, message: string): void {
   hooks.onLog?.(message);
-  const channel = getOutputChannel();
-  channel.appendLine(message);
+  getOutputChannel().appendLine(message);
 }
 
 function formatStepLabel(step: PipelineStepId): string {
   return STEP_LABELS[step];
-}
-
-let outputChannel: vscode.OutputChannel | undefined;
-function getOutputChannel(): vscode.OutputChannel {
-  if (!outputChannel) {
-    outputChannel = vscode.window.createOutputChannel(OUTPUT_CHANNEL_NAME);
-  }
-  return outputChannel;
 }
 
 async function getPackageScripts(cwd: string): Promise<Set<string>> {

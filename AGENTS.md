@@ -8,4 +8,6 @@ At the end of each task, Codex MUST append journal entries via the CLI (CommitSm
 commit-smith journal --append "feat: add payment retries" --meta scope=payments --meta ticket=T123
 ```
 
+Keep the `meta` section fresh with `--meta key=value` updates. Common keys include `scope`, `ticket`, `ticketFromBranch` (use `true`/`false`), and `style`, but feel free to add others when they provide useful context.
+
 Re-run the initializer after repo resets or whenever `.ai-commit-journal.yml`, `.gitignore`, or this guidance disappears.
