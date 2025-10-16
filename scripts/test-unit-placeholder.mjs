@@ -156,4 +156,13 @@ assert.equal(secondAgents.changed, false);
 const agentsContentAfter = await readFile(path.join(agentsDir, 'AGENTS.md'), 'utf8');
 assert.equal(agentsContent, agentsContentAfter);
 
+// Command palette label preserved while SCM short title and icon updated
+const packageJson = JSON.parse(await readFile(path.resolve(__dirname, '../package.json'), 'utf8'));
+const generateCommand = packageJson.contributes.commands.find((cmd) => cmd.command === 'commitSmith.generateFromJournal');
+assert.equal(generateCommand.title, 'CommitSmith: AI Commit (Journal)');
+assert.equal(generateCommand.shortTitle, '⚒️');
+assert.equal(generateCommand.icon, '$(tools)');
+const initializeCommand = packageJson.contributes.commands.find((cmd) => cmd.command === 'commitSmith.initializeRepo');
+assert.equal(initializeCommand.title, 'CommitSmith: Initialize CommitSmith');
+
 console.info('Initialization unit tests passed');

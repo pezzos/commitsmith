@@ -50,8 +50,12 @@ export async function initializeRepository(options: InitializeRepositoryOptions)
   const { root, log } = options;
   const writeLog = log ?? (() => undefined);
 
+  writeLog(`[INIT] Checking CommitSmith prerequisites at ${root}`);
   const status = await getInitializationStatus(root);
   const steps: InitializationStepResult[] = [];
+  writeLog(
+    `[INIT] Initial status -> journal:${status.journalReady} gitignore:${status.gitignoreReady} guidance:${status.guidanceReady}`
+  );
 
   if (!status.journalReady) {
     await initializeJournal({ root });
@@ -74,11 +78,14 @@ export async function initializeRepository(options: InitializeRepositoryOptions)
   steps.push(gitignoreResult);
   writeLog(`[INIT][gitignore] ${gitignoreResult.message}`);
 
-  const guidanceResult = await ensureGuidance(root, status.guidanceReady);
+  const guidanceResult = await ensureGuidance(root);
   steps.push(guidanceResult);
   writeLog(`[INIT][guidance] ${guidanceResult.message}`);
 
   const updatedStatus = await getInitializationStatus(root);
+  writeLog(
+    `[INIT] Final status -> journal:${updatedStatus.journalReady} gitignore:${updatedStatus.gitignoreReady} guidance:${updatedStatus.guidanceReady} needsInitialization:${updatedStatus.needsInitialization}`
+  );
 
   return {
     steps,
@@ -175,15 +182,7 @@ async function ensureGitignoreRule(root: string): Promise<InitializationStepResu
   };
 }
 
-async function ensureGuidance(root: string, alreadyReady: boolean): Promise<InitializationStepResult> {
-  if (alreadyReady) {
-    return {
-      id: 'guidance',
-      changed: false,
-      message: 'AGENTS.md already documents the journal workflow.'
-    };
-  }
-
+async function ensureGuidance(root: string): Promise<InitializationStepResult> {
   const result = await ensureJournalWorkflowSection(root);
   return {
     id: 'guidance',

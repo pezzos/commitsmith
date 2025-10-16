@@ -195,12 +195,12 @@ async function promptForInitializationIfNeeded(outputChannel: vscode.OutputChann
     }
 
     const choice = await vscode.window.showInformationMessage(
-      'CommitSmith needs to initialize this repository before running journal workflows.',
-      'Initialize Now',
+      'CommitSmith needs to finish its workspace setup before journal workflows can run.',
+      'Initialize CommitSmith',
       'Later'
     );
 
-    if (choice === 'Initialize Now') {
+    if (choice === 'Initialize CommitSmith') {
       await runInitializationFlow(repo.rootUri.fsPath, outputChannel);
     }
   } catch (error) {
@@ -214,11 +214,11 @@ async function promptForInitializationIfNeeded(outputChannel: vscode.OutputChann
 }
 
 async function runInitializationFlow(repoRoot: string, outputChannel: vscode.OutputChannel): Promise<void> {
-  outputChannel.appendLine('[INIT] commitSmith.initializeRepo invoked.');
+  outputChannel.appendLine(`[INIT] commitSmith.initializeRepo invoked for ${repoRoot}`);
   const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: 'CommitSmith: initializing repository',
+      title: 'CommitSmith: configuring workspace',
       cancellable: false
     },
     async () =>
@@ -235,9 +235,9 @@ async function runInitializationFlow(repoRoot: string, outputChannel: vscode.Out
 
   if (result.status.needsInitialization) {
     vscode.window.showWarningMessage(
-      'CommitSmith initialization completed with warnings. Review the output log for details.'
+      'CommitSmith setup completed with warnings. Review the output log for details.'
     );
   } else {
-    vscode.window.showInformationMessage('CommitSmith repository initialization complete.');
+    vscode.window.showInformationMessage('CommitSmith setup complete.');
   }
 }

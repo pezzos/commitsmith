@@ -2,7 +2,7 @@
   "name": "commit-smith",
   "displayName": "CommitSmith",
   "description": "Forge high-quality commits with Codex-assisted workflows.",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "publisher": "epicsmith",
   "license": "MIT",
   "main": "./dist/extension.js",
@@ -118,6 +118,8 @@
       {
         "command": "commitSmith.generateFromJournal",
         "title": "CommitSmith: AI Commit (Journal)",
+        "shortTitle": "⚒️",
+        "icon": "$(tools)",
         "category": "CommitSmith"
       },
       {
@@ -137,7 +139,7 @@
       },
       {
         "command": "commitSmith.initializeRepo",
-        "title": "CommitSmith: Initialize Repository",
+        "title": "CommitSmith: Initialize CommitSmith",
         "category": "CommitSmith"
       }
     ],
