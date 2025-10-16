@@ -30,12 +30,7 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:.git",
-    "onCommand:commitSmith.initializeRepo",
-    "onCommand:commitSmith.generateFromJournal",
-    "onCommand:commitSmith.clearJournal",
-    "onCommand:commitSmith.installHooks",
-    "onCommand:commitSmith.dryRun"
+    "workspaceContains:.git"
   ],
   "bin": {
     "commit-smith": "./bin/commit-smith.js"
