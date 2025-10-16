@@ -37,14 +37,12 @@ export async function ensureJournalWorkflowSection(root: string): Promise<Agents
     JOURNAL_WORKFLOW_HEADING,
     `<!-- slug: ${JOURNAL_WORKFLOW_SLUG} -->`,
     '',
-    'CommitSmith relies on `.ai-commit-journal.yml` to store Codex-authored change summaries. Run the initializer command `CommitSmith: Initialize Repository` (`commitSmith.initializeRepo`) when you first open or reset a repository so the journal, ignore rules, and guidance stay in sync.',
+    'CommitSmith relies on `.ai-commit-journal.yml` to store Codex-authored change summaries, if absent, run the initializer command `CommitSmith: Initialize Repository` (`commitSmith.initializeRepo`) to create it.',
     '',
-    'Codex appends journal entries via the CLI:',
+    'At the end of each task, Codex MUST append journal entries via the CLI (CommitSmith never self-appends):',
     '```bash',
     'codex journal --append "feat: add payment retries"',
     '```',
-    '',
-    'Re-run the initializer whenever `.ai-commit-journal.yml`, the ignore rules, or this guidance is lost — for example after deleting workspace files or recloning the repository.',
     ''
   ];
 
