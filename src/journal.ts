@@ -34,27 +34,24 @@ export function getJournalPath(options?: JournalOptions): string {
 
 export async function initializeJournal(options?: JournalOptions): Promise<void> {
   const journalPath = getJournalPath(options);
-  if (options?.createIfMissing === false) {
-    try {
-      await fs.access(journalPath);
-    } catch (error) {
-      const nodeError = error as NodeJS.ErrnoException;
-      if (nodeError.code !== 'ENOENT') {
-        throw error;
+  try {
+    await fs.access(journalPath);
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === 'ENOENT') {
+      if (options?.createIfMissing === false) {
+        return;
       }
+      await writeJournal(DEFAULT_JOURNAL, journalPath);
+      return;
     }
-    return;
+    throw error;
   }
 
   try {
-    await fs.access(journalPath);
-  } catch (error: unknown) {
-    const nodeError = error as NodeJS.ErrnoException;
-    if (nodeError.code !== 'ENOENT') {
-      throw error;
-    }
-
-    await writeJournal(DEFAULT_JOURNAL, journalPath);
+    await readJournal({ ...options, createIfMissing: false });
+  } catch (error) {
+    throw new Error(`Existing journal failed validation: ${(error as Error).message}`);
   }
 }
 
@@ -134,7 +131,7 @@ async function writeJournal(data: JournalData, journalPath: string): Promise<voi
     throw new Error(`Cannot write invalid journal payload${issues ? `: ${issues}` : ''}`);
   }
 
-  const serialized = YAML.stringify(omitEmptyMeta(payload));
+  const serialized = YAML.stringify(payload);
   await fs.writeFile(journalPath, serialized, 'utf8');
 }
 
@@ -143,14 +140,6 @@ function sanitizeMeta(meta: unknown): JournalMeta | undefined {
     return {};
   }
   return { ...(meta as Record<string, unknown>) };
-}
-
-function omitEmptyMeta(data: JournalData): JournalData {
-  if (!data.meta || Object.keys(data.meta).length === 0) {
-    const { meta, ...rest } = data;
-    return rest;
-  }
-  return data;
 }
 
 function getValidator(): ValidateFunction<JournalData> {

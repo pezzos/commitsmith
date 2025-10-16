@@ -5,11 +5,13 @@ import { forgeCommitFromJournal } from './workflows/forgeCommit';
 import { performDryRun } from './workflows/dryRun';
 import { PipelineDecisionEvent, PipelineDecision } from './pipeline';
 import { initializeJournal, clearCurrent } from './journal';
+import { getInitializationStatus, initializeRepository } from './initializer';
 import { onCodexOfflineFallback } from './codex';
 
 const COMMAND_GENERATE = 'commitSmith.generateFromJournal';
 const COMMAND_CLEAR = 'commitSmith.clearJournal';
 const COMMAND_INSTALL_HOOKS = 'commitSmith.installHooks';
+const COMMAND_INITIALIZE = 'commitSmith.initializeRepo';
 const COMMAND_DRY_RUN = 'commitSmith.dryRun';
 const OUTPUT_CHANNEL_NAME = 'CommitSmith';
 
@@ -35,8 +37,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(COMMAND_GENERATE, () => handleGenerateFromJournal(outputChannel)),
     vscode.commands.registerCommand(COMMAND_CLEAR, handleClearJournal),
     vscode.commands.registerCommand(COMMAND_INSTALL_HOOKS, handleInstallHooks),
-    vscode.commands.registerCommand(COMMAND_DRY_RUN, () => handleDryRun(outputChannel))
+    vscode.commands.registerCommand(COMMAND_DRY_RUN, () => handleDryRun(outputChannel)),
+    vscode.commands.registerCommand(COMMAND_INITIALIZE, () => handleInitializeRepo(outputChannel))
   );
+
+  void promptForInitializationIfNeeded(outputChannel);
 }
 
 export function deactivate(): void {
@@ -112,6 +117,17 @@ function handleInstallHooks(): void {
   vscode.window.showInformationMessage('CommitSmith hooks installation is coming soon.');
 }
 
+async function handleInitializeRepo(outputChannel: vscode.OutputChannel): Promise<void> {
+  try {
+    const repo = await getRepo();
+    await runInitializationFlow(repo.rootUri.fsPath, outputChannel);
+  } catch (error) {
+    const message = (error as Error).message;
+    outputChannel.appendLine(`[INIT][error] ${message}`);
+    vscode.window.showErrorMessage(`CommitSmith initialization failed: ${message}`);
+  }
+}
+
 async function handleDryRun(outputChannel: vscode.OutputChannel): Promise<void> {
   try {
     const repo = await getRepo();
@@ -168,4 +184,60 @@ async function promptForDecision(event: PipelineDecisionEvent): Promise<Pipeline
     return 'retry';
   }
   return 'abort';
+}
+
+async function promptForInitializationIfNeeded(outputChannel: vscode.OutputChannel): Promise<void> {
+  try {
+    const repo = await getRepo();
+    const status = await getInitializationStatus(repo.rootUri.fsPath);
+    if (!status.needsInitialization) {
+      return;
+    }
+
+    const choice = await vscode.window.showInformationMessage(
+      'CommitSmith needs to initialize this repository before running journal workflows.',
+      'Initialize Now',
+      'Later'
+    );
+
+    if (choice === 'Initialize Now') {
+      await runInitializationFlow(repo.rootUri.fsPath, outputChannel);
+    }
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message.includes('CommitSmith journal invalid')) {
+      outputChannel.appendLine(`[INIT][error] ${message}`);
+      vscode.window.showErrorMessage(`CommitSmith initialization failed: ${message}`);
+    }
+    // Git repository unavailable or other issue; ignore otherwise.
+  }
+}
+
+async function runInitializationFlow(repoRoot: string, outputChannel: vscode.OutputChannel): Promise<void> {
+  outputChannel.appendLine('[INIT] commitSmith.initializeRepo invoked.');
+  const result = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: 'CommitSmith: initializing repository',
+      cancellable: false
+    },
+    async () =>
+      initializeRepository({
+        root: repoRoot,
+        log: (message) => outputChannel.appendLine(message)
+      })
+  );
+
+  for (const step of result.steps) {
+    const status = step.changed ? 'updated' : 'unchanged';
+    outputChannel.appendLine(`[INIT][summary] ${step.id}: ${status} (${step.message})`);
+  }
+
+  if (result.status.needsInitialization) {
+    vscode.window.showWarningMessage(
+      'CommitSmith initialization completed with warnings. Review the output log for details.'
+    );
+  } else {
+    vscode.window.showInformationMessage('CommitSmith repository initialization complete.');
+  }
 }

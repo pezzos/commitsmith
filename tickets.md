@@ -242,3 +242,113 @@ If a future ticket needs improvement, note it.
 - Auto-push remains disabled when fallback commits result from pipeline failures.
 
 **Dependencies**: Tickets 4, 5, 6, 7
+
+---
+
+## Ticket 10 – First-run initialization command
+
+**Context**
+New users often click the CommitSmith commands before the workspace contains the required journal or ignore rules, leading to cryptic failures. Provide a guided initialization flow when a repository is first opened.
+
+**Scope**
+- Add an activation-time check that determines whether the repo needs setup (missing `.ai-commit-journal.yml`, `.gitignore` without the ignore rule, missing the exact sentinel heading `## CommitSmith Journal Workflow` (slug `commitsmith-journal-workflow`) in `AGENTS.md`).
+- Surface a notification/button and matching command palette entry to trigger initialization, and ensure the prompt reappears only until all setup checks pass.
+- Invoke the idempotent helpers to create the empty journal, patch `.gitignore`, and call the AGENTS guidance helper delivered in Ticket 12, logging the command name plus a summary of each step to `OUTPUT > CommitSmith`.
+
+**Return**
+- Files updated/created
+- Tests executed: targeted unit tests covering initialization status detection (presence of `.ai-commit-journal.yml`, `.gitignore` rule, and the literal sentinel heading `## CommitSmith Journal Workflow` / slug `commitsmith-journal-workflow`) and rerun behavior, plus manual smoke (trigger initializer twice in a fresh repo)
+- Manual validation tasks: Open a fresh git repo, trigger initializer, confirm follow-up click skips notification and commands run without errors.
+
+**Feedback**
+If a future ticket needs improvement, note it.
+
+**Acceptance criteria**
+- Users receive a clear prompt the first time CommitSmith loads a repo that lacks required files.
+- Initialization is idempotent, can be rerun via command palette, and stops prompting once `.ai-commit-journal.yml` exists with `current: []` and `meta: {}`, `.gitignore` contains `.ai-commit-journal.yml`, and `AGENTS.md` includes the literal sentinel heading `## CommitSmith Journal Workflow` (slug `commitsmith-journal-workflow`, added by Ticket 12).
+- Initialization summary (including command name and per-step results) is written to the CommitSmith output channel.
+
+**Dependencies**: Tickets 1, 4
+
+---
+
+## Ticket 11 – Idempotent journal + ignore setup
+
+**Context**
+CommitSmith relies on `.ai-commit-journal.yml` and `.gitignore` configuration; missing or double-appending entries cause workflow regressions.
+
+**Scope**
+- Implement helper logic that ensures `.ai-commit-journal.yml` exists with the exact empty payload `current: []` / `meta: {}` defined in SPEC §3.1, reusing the schema validator from `journal.ts` (Ticket 3) and leaving existing content untouched.
+- Update `.gitignore` to include `.ai-commit-journal.yml` only when absent, preserving existing line endings.
+- Provide utility functions (exposed via `initializeJournal` / related APIs) that can be invoked from the initializer and other flows without producing duplicate entries.
+
+**Return**
+- Files updated/created
+- Tests executed: automated tests covering empty journal creation, malformed journal failure cases (error surfaced without overwriting or auto-repair), idempotent re-runs, and `.gitignore` patching (including CRLF preservation)
+- Manual validation tasks: Remove the journal file, rerun initializer helper, confirm file recreated and `.gitignore` unchanged when already correct.
+
+**Feedback**
+If a future ticket needs improvement, note it.
+
+**Acceptance criteria**
+- Journal initialization writes exactly `current: []` and `meta: {}` when the file is missing and reuses the existing journal JSON-schema validation from SPEC §3.1 to reject malformed payloads with actionable errors (failing fast, surfacing the error, and leaving the file untouched).
+- Automated coverage asserts the SPEC §3.1 validation failure path returns an error without mutating the journal on disk, preventing silent rebuilds.
+- `.gitignore` is modified only when necessary (no duplicate lines, respects existing line endings, including CRLF).
+- Helpers include automated test coverage (including malformed journal failure and CRLF preservation cases) and can be invoked multiple times without modifying the repo once it is in the desired state.
+
+**Dependencies**: Tickets 3 (journal schema validator), 4
+
+---
+
+## Ticket 12 – Document agent responsibilities
+
+**Context**
+Agents (Codex/Ops) need clear instructions on updating the journal and running the initializer. `AGENTS.md` currently lacks guidance, causing inconsistent workflows.
+
+**Scope**
+- Create `AGENTS.md` if missing, then append a `## CommitSmith Journal Workflow` section explaining the journal lifecycle, the initializer command ID (`commitSmith.initializeRepo`), and the exact `codex journal --append "<entry>"` workflow from BRIEF §4 (including usage example), plus guidance on when to rerun initialization after repo resets.
+- Add a lightweight automated guard that proves the AGENTS guidance writer is idempotent so Ticket 10 can invoke it repeatedly without diffs.
+- Ensure the section is added exactly once, formatted consistently with existing guidance.
+
+**Return**
+- Files updated/created
+- Tests executed: automated idempotency test (e.g., snapshot/fixture ensuring a second invocation is a no-op) plus manual verification
+- Manual validation tasks: Run initializer twice; confirm `AGENTS.md` section is present once and unchanged on subsequent runs.
+
+**Feedback**
+If a future ticket needs improvement, note it.
+
+**Acceptance criteria**
+- `AGENTS.md` contains an explicit `## CommitSmith Journal Workflow` section covering `.ai-commit-journal.yml`, the initializer command ID (`commitSmith.initializeRepo`), and the `codex journal --append "<entry>"` workflow (with usage example), plus guidance on rerunning initialization after repo resets.
+- Running the initializer when the section already exists leaves the file untouched (no duplicate blocks), verified by automated idempotency tests.
+- Automated guard proves the writer is idempotent under repeated runs (supporting Ticket 10's repeated invocations).
+- Formatting matches the established style in `AGENTS.md`.
+
+**Dependencies**: Tickets 11
+
+---
+
+## Ticket 13 – Update SCM button to hammer icon
+
+**Context**
+The SCM button currently displays the full text label “CommitSmith: AI Commit (Journal)”, which is verbose. Design requests replacing it with a compact hammer icon to match the product branding.
+
+**Scope**
+- Swap the SCM title button label so it renders only the hammer icon (⚒️), providing a codicon fallback (`codicon-tools`) when the emoji font is unavailable, while keeping the descriptive tooltip/ARIA label “CommitSmith: AI Commit (Journal)”.
+- Ensure the command palette entry and hover text continue to describe the action clearly.
+- Verify the icon displays correctly across light/dark themes and high-DPI displays.
+
+**Return**
+- Files updated/created
+- Tests executed: manual verification in the VS Code Extension Development Host plus an automated smoke check ensuring the aria-label remains “CommitSmith: AI Commit (Journal)” when the fallback codicon path is used
+- Manual validation tasks: Hover and keyboard-focus the SCM button to confirm tooltip/accessibility, check high-DPI/light/dark themes for proper icon rendering.
+
+**Feedback**
+If a future ticket needs improvement, note it.
+
+**Acceptance criteria**
+- SCM button shows the hammer icon instead of the text label, with a codicon fallback (`codicon-tools`) when the hammer emoji is unavailable.
+- Tooltip/ARIA label retains the descriptive action text (“CommitSmith: AI Commit (Journal)”) across both emoji and fallback renderers, validated by automated smoke test.
+- Command palette entry remains unchanged.
+
+**Dependencies**: Tickets 7

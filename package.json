@@ -12,7 +12,7 @@
   },
   "scripts": {
     "compile": "tsc -p .",
-    "test:unit": "node ./scripts/test-unit-placeholder.mjs",
+    "test:unit": "npm run compile && node ./scripts/test-unit-placeholder.mjs",
     "test:config": "npm run compile && node ./scripts/test-config.mjs",
     "test:git": "node --loader ts-node/esm ./scripts/test-git.ts",
     "test:codex": "node --loader ts-node/esm ./scripts/test-codex.ts",
@@ -30,6 +30,8 @@
     "Other"
   ],
   "activationEvents": [
+    "workspaceContains:.git",
+    "onCommand:commitSmith.initializeRepo",
     "onCommand:commitSmith.generateFromJournal",
     "onCommand:commitSmith.clearJournal",
     "onCommand:commitSmith.installHooks",
@@ -131,6 +133,11 @@
       {
         "command": "commitSmith.dryRun",
         "title": "CommitSmith: Dry Run (Coming Soon)",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.initializeRepo",
+        "title": "CommitSmith: Initialize Repository",
         "category": "CommitSmith"
       }
     ],
