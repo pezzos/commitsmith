@@ -20,7 +20,8 @@ interface CodexCliRequest {
 }
 
 const configStore: StubWorkspaceConfig = {
-  "codex.model": "gpt-5-codex-test",
+  "codex.model": "gpt-5-codex",
+  "codex.reasoningLevel": "medium",
   "codex.binaryPath": "mock-codex",
   "codex.extraArgs": "--profile tests",
   "message.style": "conventional",
@@ -116,12 +117,19 @@ async function main(): Promise<void> {
     if (request === "vscode") {
       return {
         EventEmitter,
+        ProgressLocation: {
+          Notification: "notification",
+        },
         window: {
           createOutputChannel() {
             return {
               appendLine: (value: string) => logEntries.push(value),
             };
           },
+          withProgress: async (_options: unknown, task: any) =>
+            task({
+              report: () => {},
+            }),
         },
         workspace: {
           getConfiguration(namespace: string) {
@@ -384,10 +392,12 @@ async function main(): Promise<void> {
     assert.equal(firstInvocation.command, "mock-codex");
     assert(firstInvocation.args.includes("--json"));
     assert(firstInvocation.args.includes("--sandbox"));
-    assert(firstInvocation.args.includes("workspace"));
+    assert(firstInvocation.args.includes("workspace-write"));
+    assert(firstInvocation.args.includes("--profile"));
+    assert(firstInvocation.args.includes("tests"));
     assert.deepEqual(firstInvocation.args.slice(-2), [
-      "--profile",
-      "tests",
+      "-c",
+      'reasoning.level="medium"',
     ]);
     assert(logEntries.length > 0);
 

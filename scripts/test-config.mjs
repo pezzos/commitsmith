@@ -7,8 +7,11 @@ import url from "node:url";
 
 const defaults = {
   format: "npm run format:fix",
+  formatEnabled: true,
   typecheck: "npm run typecheck",
+  typecheckEnabled: true,
   tests: "npm test -- -w",
+  testsEnabled: true,
   pipelineEnable: true,
   pipelineMaxAttempts: 2,
   pipelineAbortOnFailure: true,
@@ -17,6 +20,7 @@ const defaults = {
   messageEnforce72: true,
   jiraFromBranch: true,
   codexModel: "gpt-5-codex",
+  codexReasoningLevel: "low",
   codexBinaryPath: null,
   codexExtraArgs: [],
   codexTimeoutMs: 120_000,
@@ -82,8 +86,14 @@ try {
   const configDefaults = getConfig();
 
   assert.equal(configDefaults.formatCommand, defaults.format);
+  assert.equal(configDefaults.formatEnabled, defaults.formatEnabled);
   assert.equal(configDefaults.typecheckCommand, defaults.typecheck);
+  assert.equal(
+    configDefaults.typecheckEnabled,
+    defaults.typecheckEnabled,
+  );
   assert.equal(configDefaults.testsCommand, defaults.tests);
+  assert.equal(configDefaults.testsEnabled, defaults.testsEnabled);
   assert.equal(
     configDefaults.pipelineEnable,
     defaults.pipelineEnable,
@@ -111,6 +121,10 @@ try {
   );
   assert.equal(configDefaults.codexModel, defaults.codexModel);
   assert.equal(
+    configDefaults.codexReasoningLevel,
+    defaults.codexReasoningLevel,
+  );
+  assert.equal(
     configDefaults.codexBinaryPath,
     defaults.codexBinaryPath,
   );
@@ -133,7 +147,12 @@ try {
 
   configurationStore.set("message.style", "plain");
   configurationStore.set("pipeline.maxAiFixAttempts", 3);
+  configurationStore.set("format.enabled", false);
+  configurationStore.set("typecheck.enabled", false);
+  configurationStore.set("tests.enabled", false);
   configurationStore.set("codex.extraArgs", "--profile stage");
+  configurationStore.set("codex.model", "gpt-5");
+  configurationStore.set("codex.reasoningLevel", "high");
   configurationStore.set("codex.timeoutMs", 150000);
   configurationStore.set("codex.serenaTimeoutMs", 200000);
   configurationStore.set("codex.mcpWhitelist", ["github", "serena"]);
@@ -142,10 +161,15 @@ try {
 
   assert.equal(configOverrides.messageStyle, "plain");
   assert.equal(configOverrides.pipelineMaxAiFixAttempts, 3);
+  assert.equal(configOverrides.formatEnabled, false);
+  assert.equal(configOverrides.typecheckEnabled, false);
+  assert.equal(configOverrides.testsEnabled, false);
   assert.deepEqual(configOverrides.codexExtraArgs, [
     "--profile",
     "stage",
   ]);
+  assert.equal(configOverrides.codexModel, "gpt-5");
+  assert.equal(configOverrides.codexReasoningLevel, "high");
   assert.equal(configOverrides.codexTimeoutMs, 150000);
   assert.equal(configOverrides.codexSerenaTimeoutMs, 200000);
   assert.deepEqual(configOverrides.codexMcpWhitelist, [
@@ -158,6 +182,8 @@ try {
   configurationStore.set("codex.timeoutMs", 500);
   configurationStore.set("codex.serenaTimeoutMs", 0);
   configurationStore.set("codex.mcpWhitelist", [123, ""]);
+  configurationStore.set("codex.model", "unsupported");
+  configurationStore.set("codex.reasoningLevel", "extreme");
 
   const configInvalid = getConfig();
 
@@ -177,6 +203,11 @@ try {
   assert.deepEqual(
     configInvalid.codexMcpWhitelist,
     defaults.codexMcpWhitelist,
+  );
+  assert.equal(configInvalid.codexModel, defaults.codexModel);
+  assert.equal(
+    configInvalid.codexReasoningLevel,
+    defaults.codexReasoningLevel,
   );
 
   console.info("Config tests passed");

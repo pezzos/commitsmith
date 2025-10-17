@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants as fsConstants, readFileSync } from "node:fs";
+import {
+  accessSync,
+  constants as fsConstants,
+  readFileSync,
+} from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import * as vscode from "vscode";
@@ -251,13 +255,14 @@ async function runCodexCli<T>(
     args.push(...mcpOverrides);
   }
 
-  const shouldForceLowReasoning =
-    request.model === "gpt-5-codex" &&
-    !config.codexExtraArgs.some((arg) =>
-      arg.includes("reasoning.level"),
+  const hasReasoningOverride = config.codexExtraArgs.some((arg) =>
+    arg.includes("reasoning.level"),
+  );
+  if (!hasReasoningOverride) {
+    args.push(
+      "-c",
+      `reasoning.level="${config.codexReasoningLevel}"`,
     );
-  if (shouldForceLowReasoning) {
-    args.push("-c", 'reasoning.level="low"');
   }
 
   if (options?.execution?.skipGitRepoCheck) {
@@ -554,8 +559,8 @@ function getMcpOverrideArgs(
     }
   }
 
-  const entries = Array.from(canonicalByLower.entries()).sort((a, b) =>
-    a[1].localeCompare(b[1]),
+  const entries = Array.from(canonicalByLower.entries()).sort(
+    (a, b) => a[1].localeCompare(b[1]),
   );
 
   const overrides: string[] = [];

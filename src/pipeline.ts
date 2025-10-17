@@ -313,28 +313,51 @@ async function buildStepDefinitions(
   ]);
   const envPatch = createEnvPatch([npmBinary, nodeBinary]);
 
-  const commands: Record<PipelineStepId, string> = {
-    format: resolveStepCommandBinary(config.formatCommand, npmBinary),
-    typecheck: resolveStepCommandBinary(
-      config.typecheckCommand,
-      npmBinary,
-    ),
-    tests: resolveStepCommandBinary(config.testsCommand, npmBinary),
-  } as unknown as Record<PipelineStepId, string>;
+  const stepSettings: Record<
+    PipelineStepId,
+    { enabled: boolean; command: string }
+  > = {
+    format: {
+      enabled: config.formatEnabled,
+      command: config.formatEnabled
+        ? resolveStepCommandBinary(config.formatCommand, npmBinary)
+        : "",
+    },
+    typecheck: {
+      enabled: config.typecheckEnabled,
+      command: config.typecheckEnabled
+        ? resolveStepCommandBinary(config.typecheckCommand, npmBinary)
+        : "",
+    },
+    tests: {
+      enabled: config.testsEnabled,
+      command: config.testsEnabled
+        ? resolveStepCommandBinary(config.testsCommand, npmBinary)
+        : "",
+    },
+  };
 
   const scripts =
     mode === "dry-run" ? await getPackageScripts(cwd) : undefined;
 
   return STEP_SEQUENCE.map((id) => {
-    const baseCommand = commands[id];
+    const { enabled, command } = stepSettings[id];
+
+    if (!enabled) {
+      return {
+        id,
+        command: "",
+        dryRunSkipReason: "Disabled via configuration.",
+      };
+    }
 
     if (mode !== "dry-run") {
-      return { id, command: baseCommand, envPatch };
+      return { id, command, envPatch };
     }
 
     if (id === "format") {
       const result = translateFormatCommandForDryRun(
-        baseCommand,
+        command,
         scripts ?? new Set(),
       );
       if (result.skip) {
@@ -343,7 +366,7 @@ async function buildStepDefinitions(
           command: "",
           dryRunSkipReason:
             result.reason ??
-            `Skipping mutating command "${baseCommand}" during dry run.`,
+            `Skipping mutating command "${command}" during dry run.`,
         };
       }
       return {
@@ -353,7 +376,7 @@ async function buildStepDefinitions(
       };
     }
 
-    return { id, command: baseCommand, envPatch };
+    return { id, command, envPatch };
   });
 }
 
@@ -550,19 +573,59 @@ async function stageRelevantChanges(
 
 async function listChangedFiles(root: string): Promise<string[]> {
   try {
-    const { stdout } = await execAsync("git status --porcelain", {
-      cwd: root,
-      windowsHide: true,
-    });
-    if (!stdout.trim()) {
+    const { stdout } = await execAsync(
+      "git status --porcelain=v1 -z",
+      {
+        cwd: root,
+        windowsHide: true,
+      },
+    );
+    if (!stdout) {
       return [];
     }
-    return stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => line.slice(3).trim())
-      .filter(Boolean);
+
+    const entries = stdout
+      .split("\0")
+      .filter((entry) => entry.length > 0);
+    const files: string[] = [];
+
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      const statusX = entry[0] ?? " ";
+      const statusY = entry[1] ?? " ";
+
+      let pathStart = 3;
+      if (entry.length > 3 && entry[2] !== " ") {
+        const spaceIndex = entry.indexOf(" ");
+        pathStart = spaceIndex >= 0 ? spaceIndex + 1 : entry.length;
+      }
+
+      const pathText = entry.slice(pathStart);
+      if (!pathText) {
+        continue;
+      }
+
+      const isRenameOrCopy =
+        statusX === "R" ||
+        statusX === "C" ||
+        statusY === "R" ||
+        statusY === "C";
+
+      if (isRenameOrCopy) {
+        const targetPath = entries[index + 1];
+        if (targetPath) {
+          files.push(targetPath);
+          index += 1;
+          continue;
+        }
+      }
+
+      if (pathText !== "/dev/null") {
+        files.push(pathText);
+      }
+    }
+
+    return files;
   } catch {
     return [];
   }

@@ -5,10 +5,19 @@ const CONFIG_NAMESPACE = "commitSmith";
 const MESSAGE_STYLES = ["conventional", "plain"] as const;
 type MessageStyle = (typeof MESSAGE_STYLES)[number];
 
+const CODEX_MODELS = ["gpt-5", "gpt-5-codex"] as const;
+type CodexModel = (typeof CODEX_MODELS)[number];
+
+const CODEX_REASONING_LEVELS = ["low", "medium", "high"] as const;
+type CodexReasoningLevel = (typeof CODEX_REASONING_LEVELS)[number];
+
 export interface CommitSmithConfig {
   readonly formatCommand: string;
+  readonly formatEnabled: boolean;
   readonly typecheckCommand: string;
+  readonly typecheckEnabled: boolean;
   readonly testsCommand: string;
+  readonly testsEnabled: boolean;
   readonly pipelineEnable: boolean;
   readonly pipelineMaxAiFixAttempts: number;
   readonly pipelineAbortOnFailure: boolean;
@@ -16,7 +25,8 @@ export interface CommitSmithConfig {
   readonly messageStyle: MessageStyle;
   readonly messageEnforce72: boolean;
   readonly jiraFromBranch: boolean;
-  readonly codexModel: string;
+  readonly codexModel: CodexModel;
+  readonly codexReasoningLevel: CodexReasoningLevel;
   readonly codexBinaryPath: string | null;
   readonly codexExtraArgs: string[];
   readonly codexTimeoutMs: number;
@@ -26,8 +36,11 @@ export interface CommitSmithConfig {
 
 const DEFAULTS: CommitSmithConfig = {
   formatCommand: "npm run format:fix",
+  formatEnabled: true,
   typecheckCommand: "npm run typecheck",
+  typecheckEnabled: true,
   testsCommand: "npm test -- -w",
+  testsEnabled: true,
   pipelineEnable: true,
   pipelineMaxAiFixAttempts: 2,
   pipelineAbortOnFailure: true,
@@ -36,6 +49,7 @@ const DEFAULTS: CommitSmithConfig = {
   messageEnforce72: true,
   jiraFromBranch: true,
   codexModel: "gpt-5-codex",
+  codexReasoningLevel: "low",
   codexBinaryPath: null,
   codexExtraArgs: [],
   codexTimeoutMs: 120_000,
@@ -69,13 +83,25 @@ export function getConfig(): CommitSmithConfig {
       "format.command",
       DEFAULTS.formatCommand,
     ),
+    formatEnabled: settings.get<boolean>(
+      "format.enabled",
+      DEFAULTS.formatEnabled,
+    ),
     typecheckCommand: settings.get<string>(
       "typecheck.command",
       DEFAULTS.typecheckCommand,
     ),
+    typecheckEnabled: settings.get<boolean>(
+      "typecheck.enabled",
+      DEFAULTS.typecheckEnabled,
+    ),
     testsCommand: settings.get<string>(
       "tests.command",
       DEFAULTS.testsCommand,
+    ),
+    testsEnabled: settings.get<boolean>(
+      "tests.enabled",
+      DEFAULTS.testsEnabled,
     ),
     pipelineEnable: settings.get<boolean>(
       "pipeline.enable",
@@ -110,9 +136,13 @@ export function getConfig(): CommitSmithConfig {
       "jira.fromBranch",
       DEFAULTS.jiraFromBranch,
     ),
-    codexModel: settings.get<string>(
-      "codex.model",
+    codexModel: coerceCodexModel(
+      settings.get<string>("codex.model"),
       DEFAULTS.codexModel,
+    ),
+    codexReasoningLevel: coerceCodexReasoningLevel(
+      settings.get<string>("codex.reasoningLevel"),
+      DEFAULTS.codexReasoningLevel,
     ),
     codexBinaryPath: settings.get<string | null>(
       "codex.binaryPath",
@@ -140,10 +170,9 @@ export function getConfig(): CommitSmithConfig {
       "commitSmith.codex.serenaTimeoutMs",
     ),
     codexMcpWhitelist: parseStringArray(
-      settings.get<string[]>(
-        "codex.mcpWhitelist",
-        [...DEFAULTS.codexMcpWhitelist],
-      ),
+      settings.get<string[]>("codex.mcpWhitelist", [
+        ...DEFAULTS.codexMcpWhitelist,
+      ]),
     ),
   };
 }
@@ -176,6 +205,39 @@ function coerceMessageStyle(
   console.warn(
     `commitSmith.message.style must be one of ${MESSAGE_STYLES.join(", ")}. Falling back to ${fallback}.`,
   );
+  return fallback;
+}
+
+function coerceCodexModel(
+  value: string | undefined,
+  fallback: CodexModel,
+): CodexModel {
+  if (value && (CODEX_MODELS as readonly string[]).includes(value)) {
+    return value as CodexModel;
+  }
+  if (value) {
+    console.warn(
+      `commitSmith.codex.model must be one of ${CODEX_MODELS.join(", ")}. Falling back to ${fallback}.`,
+    );
+  }
+  return fallback;
+}
+
+function coerceCodexReasoningLevel(
+  value: string | undefined,
+  fallback: CodexReasoningLevel,
+): CodexReasoningLevel {
+  if (
+    value &&
+    (CODEX_REASONING_LEVELS as readonly string[]).includes(value)
+  ) {
+    return value as CodexReasoningLevel;
+  }
+  if (value) {
+    console.warn(
+      `commitSmith.codex.reasoningLevel must be one of ${CODEX_REASONING_LEVELS.join(", ")}. Falling back to ${fallback}.`,
+    );
+  }
   return fallback;
 }
 
