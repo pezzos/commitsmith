@@ -25,7 +25,7 @@ const DEFAULT_CLI_TIMEOUT_MS = 120000;
 const DEFAULT_CLI_BINARY = "codex";
 const HOMEBREW_CLI_PATH = "/opt/homebrew/bin/codex";
 const MAX_PROMPT_LOG_LENGTH = 2000;
-const MAX_CLI_LOG_LENGTH = 2000;
+const MAX_CLI_LOG_LENGTH = 8000;
 
 export type PipelineStep = "format" | "typecheck" | "tests";
 
@@ -81,6 +81,7 @@ export async function generateCommitMessage(
   options?: CodexExecutionOptions,
 ): Promise<string> {
   const invocation = buildCommitPrompt(journal);
+  logPromptPreview("Commit", invocation.prompt);
   const rawEvents: string[] = [];
   const response = await runCodexCli<unknown>(
     invocation.operation,
@@ -108,6 +109,12 @@ export async function generateCommitMessage(
         error,
       );
       emitValidationFallback(error);
+    } else if (rawEvents.length > 0) {
+      logMultilineBlock(
+        "Commit CLI events",
+        rawEvents.join("\n"),
+        MAX_CLI_LOG_LENGTH,
+      );
     }
     throw error;
   }
