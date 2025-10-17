@@ -25,7 +25,7 @@ const DEFAULT_CLI_TIMEOUT_MS = 120000;
 const DEFAULT_CLI_BINARY = "codex";
 const HOMEBREW_CLI_PATH = "/opt/homebrew/bin/codex";
 const MAX_PROMPT_LOG_LENGTH = 2000;
-const MAX_CLI_LOG_LENGTH = 8000;
+const MAX_CLI_LOG_LENGTH = 20000;
 
 export type PipelineStep = "format" | "typecheck" | "tests";
 
@@ -125,13 +125,8 @@ export async function generateCommitMessage(
         error,
       );
       emitValidationFallback(error);
-    } else if (rawEvents.length > 0) {
-      logMultilineBlock(
-        "Commit CLI events",
-        rawEvents.join("\n"),
-        MAX_CLI_LOG_LENGTH,
-      );
     }
+    logCliDiagnostics(rawEvents);
     throw error;
   }
 }
@@ -214,21 +209,118 @@ function extractCommitResultFromEvents(
     return undefined;
   }
 
+  let commitFromCommand: string | undefined;
+
   for (let index = events.length - 1; index >= 0; index -= 1) {
-    const line = events[index];
-    try {
-      const parsed = JSON.parse(line);
-      if (
-        parsed &&
-        parsed.type === "result" &&
-        parsed.payload &&
-        typeof parsed.payload.message === "string"
-      ) {
-        return { message: parsed.payload.message };
-      }
-    } catch {
-      // ignore malformed lines
+    const event = safeParseCliEvent(events[index]);
+    if (!event) {
+      continue;
     }
+
+    if (
+      event.type === "result" &&
+      event.payload &&
+      typeof event.payload.message === "string"
+    ) {
+      return { message: event.payload.message };
+    }
+
+    if (
+      event.type === "item.started" &&
+      typeof event.item?.command === "string"
+    ) {
+      const commandMessage = extractCommitMessageFromCommand(
+        event.item.command,
+      );
+      if (commandMessage) {
+        commitFromCommand = commandMessage;
+      }
+    }
+  }
+
+  if (commitFromCommand) {
+    return { message: commitFromCommand };
+  }
+
+  return undefined;
+}
+
+function logCliDiagnostics(events: string[]): void {
+  if (!events || events.length === 0) {
+    return;
+  }
+
+  const diagnostics: string[] = [];
+  for (const raw of events) {
+    const event = safeParseCliEvent(raw);
+    if (!event) {
+      continue;
+    }
+
+    if (event.type === "error" && typeof event.message === "string") {
+      diagnostics.push(event.message.trim());
+      continue;
+    }
+
+    if (
+      event.type === "item.completed" &&
+      typeof event.item?.aggregated_output === "string"
+    ) {
+      const output = event.item.aggregated_output.trim();
+      if (
+        output.length > 0 &&
+        (event.item.status === "failed" ||
+          /\bfatal\b/i.test(output) ||
+          /Operation not permitted/i.test(output))
+      ) {
+        diagnostics.push(
+          [
+            event.item.command ? `> ${event.item.command}` : "",
+            output,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        );
+      }
+    }
+  }
+
+  if (diagnostics.length > 0) {
+    logMultilineBlock(
+      "Commit CLI diagnostics",
+      diagnostics.join("\n\n"),
+      MAX_CLI_LOG_LENGTH,
+    );
+  }
+}
+
+function safeParseCliEvent(raw: string): any | undefined {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function extractCommitMessageFromCommand(
+  command: string,
+): string | undefined {
+  if (!command.includes("git commit")) {
+    return undefined;
+  }
+
+  const doubleQuoted = command.match(
+    /git\s+commit[^"]*?-a?m\s+"([^"]+)"/,
+  );
+  if (doubleQuoted?.[1]) {
+    return doubleQuoted[1];
+  }
+
+  const singleQuoted = command.match(
+    /git\s+commit[^']*?-a?m\s+'([^']+)'/,
+  );
+  if (singleQuoted?.[1]) {
+    return singleQuoted[1];
   }
 
   return undefined;
