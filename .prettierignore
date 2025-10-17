@@ -1,0 +1,22 @@
+# Generated data & runtime state
+/data/
+scripts/loop/tmp/
+
+# Logs & caches
+*.log
+*.jsonl
+coverage/
+
+# Build artifacts
+server/dist/
+node_modules/
+odist/
+*.map
+
+# Git + misc
+.git/
+.DS_Store
+*.patch
+
+# Documentation
+*.md

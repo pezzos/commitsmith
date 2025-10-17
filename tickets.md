@@ -352,3 +352,142 @@ If a future ticket needs improvement, note it.
 - Command palette entry remains unchanged.
 
 **Dependencies**: Tickets 7
+
+---
+
+## Ticket 14 – Replace Codex API client with CLI runner
+
+**Context**
+CommitSmith currently calls Codex over HTTP (`src/codex.ts`). We are migrating to the Codex CLI (`codex exec`) for all headless usage to align with the CommitSmith Journal workflow.
+
+**Scope**
+- Replace the HTTP client in `src/codex.ts` with a CLI-backed runner that shells out to `codex exec` using `--json` output, an appropriate sandbox policy, and a discovery chain for the binary (`commitSmith.codex.binaryPath` VS Code setting → `CODEX_PATH` env var → `codex` on PATH).
+- Detect when the CLI binary is missing or exits with “command not found”/auth errors, emit a user-facing message in the CommitSmith output channel with links to install/auth docs, and trigger the same offline fallback signal used today.
+- Stream CLI JSONL events, surface reasoning/log messages once in the existing CommitSmith output channel, and translate CLI failures into the current `CodexOfflineFallbackEvent` signals.
+- Ensure helper methods still return unified diffs and commit message strings compatible with existing pipeline workflows.
+
+**Return**
+- Files updated/created
+- Tests executed: focused unit tests for the new CLI runner plus `npm run test:codex`
+- Manual validation tasks: run `CommitSmith: AI Commit (Journal)` and trigger a pipeline AI fix in an Extension Development Host with Codex CLI (approval policy `never`) configured
+
+**Feedback**
+If a future ticket needs improvement, note it.
+
+**Acceptance criteria**
+- `generateCommitMessage` and `generateFix` rely solely on the CLI runner; no HTTP requests remain in `src/codex.ts`.
+- CLI event streaming logs appear once in the CommitSmith output channel without spawning duplicate channels.
+- Missing/misconfigured CLI detection produces a clearly worded guidance message (including install/auth instructions) and fires `onCodexOfflineFallback` exactly like the HTTP client.
+
+**Dependencies**: None
+
+---
+
+## Ticket 15 – Define Codex CLI schemas and prompt adapters
+
+**Context**
+Switching to the CLI requires structured prompts and output schemas so commit messages and diffs match CommitSmith expectations.
+
+**Scope**
+- Add versioned JSON schemas under `assets/schema/` (e.g., `codex-cli-commit.v1.schema.json`, `codex-cli-fix.v1.schema.json`) describing CLI output for commit messages and AI fix diffs, with guidance on incrementing the `.vN` suffix when schema shape changes.
+- Implement prompt adapter utilities that assemble journal and pipeline context for `codex exec`, returning parsed results that satisfy existing types and persisting prompts/results under `.commit-smith/patches/<timestamp>/cli/` (store prompt text, schema version, raw JSONL, parsed payloads; reuse retention policy already applied to dry-run artefacts).
+- Update dry-run artefact generation to persist CLI prompts/results and validation metadata for audit.
+
+**Return**
+- Files updated/created
+- Tests executed: new unit tests covering schema parsing and prompt adapters, plus `npm run test:dry-run`
+- Manual validation tasks: run a dry run and verify `summary.json` reflects CLI-produced data
+
+**Feedback**
+If a future ticket needs improvement, note it.
+
+**Acceptance criteria**
+- Schemas validate CLI output and raise actionable errors (including schema version, offending field) when responses are malformed.
+- Prompt adapters become the single entry point for providing journal/pipeline context to Codex CLI and emit telemetry-ready error objects (prompt summary, schema version, validation failure) when validation fails.
+- Dry-run artefacts capture prompts, schema version, raw response JSONL, and parsed result in `.commit-smith/patches/<timestamp>/cli/` without regressing existing consumers and respecting existing retention behaviour.
+
+**Dependencies**: Tickets 14
+
+---
+
+## Ticket 16 – Remove Codex API configuration, docs, and tests
+
+**Context**
+After the CLI migration, HTTP-specific settings (`codex.endpoint`, `codex.timeoutMs`) and documentation must be retired.
+
+**Scope**
+- Update `src/config.ts`, VS Code settings, BRIEF.md, SPEC.md, README.md, AGENTS.md, bootstrap prompts, onboarding tutorials, and any agent guidance to reference the CLI only, including installation/authentication steps and required environment setup.
+- Remove unused configuration values, mocks, and tests tied to HTTP fetch behavior and purge all HTTP env var examples (`codexEndpoint`, `codexTimeoutMs`, API URLs/keys) from docs/config samples and onboarding copy.
+- Introduce optional CLI configuration (path/extra flags) if needed.
+
+**Return**
+- Files updated/created
+- Tests executed: `npm run test:config`, `npm run test:unit`
+- Manual validation tasks: verify the settings UI in VS Code reflects only CLI-centric options.
+
+**Feedback**
+If a future ticket needs improvement, note it.
+
+**Acceptance criteria**
+- No code or documentation references `codexEndpoint`/`codexTimeoutMs`; CLI usage (installation, auth, configuration) is documented end-to-end across BRIEF/SPEC/README/AGENTS/onboarding.
+- Configuration defaults and tests align with CLI invocation.
+- Onboarding materials instruct agents to install and authenticate the Codex CLI, and all HTTP env var examples are removed.
+
+**Dependencies**: Tickets 14
+
+---
+
+## Ticket 17 – Update workflows and tests to consume CLI-backed helpers
+
+**Context**
+Workflows (`forgeCommit`, `pipeline`, dry run`) and tests currently depend on API-specific helpers.
+
+**Scope**
+- Refactor `src/workflows/forgeCommit.ts`, `src/pipeline.ts`, and `src/workflows/dryRun.ts` to use the CLI-backed helpers without changing business logic.
+- Provide a shared CLI mock helper for tests that simulates streaming JSONL output, and update test harnesses (`scripts/test-*.mjs`, integration tests) to use it instead of HTTP mocks.
+- Confirm pipeline AI fix logging and dry-run patch capture behave identically post-migration.
+
+**Return**
+- Files updated/created
+- Tests executed: `npm run test:pipeline`, `npm run test:integration`, `npm run test:offline`
+- Manual validation tasks: run `CommitSmith: AI Commit (Journal)` end-to-end to confirm pipeline fixes and commit message generation succeed via CLI.
+
+**Feedback**
+If a future ticket needs improvement, note it.
+
+**Acceptance criteria**
+- Workflows operate with CLI-backed helpers and pass existing automated suites.
+- Test harnesses validate CLI output handling via the shared JSONL mock, including failure scenarios.
+- Streaming logs remain single-threaded/deduplicated across workflows (verified via tests that the output channel receives one sequence per operation), and offline fallback still produces heuristic commit messages when CLI execution fails.
+
+**Dependencies**: Tickets 14, 15
+
+---
+
+## Ticket 18 – Final verification and cleanup of Codex CLI migration
+
+**Context**
+Following implementation, we need a final QA pass to ensure the CLI integration is stable and polished.
+
+**Scope**
+- Execute a full manual validation pass (initializer, dry run, AI fix, commit) with Codex CLI configured.
+- Audit logs and documentation for leftover API references or confusing messaging.
+- Prepare changelog/release notes announcing the CLI migration and deprecation of the HTTP API path.
+- Remove any TODOs or scaffolding related to the deprecated API and capture outstanding gaps as follow-up tickets.
+
+**Return**
+- Files updated/created
+- Tests executed: full suite (`npm run compile && npm run test:integration`)
+- Manual validation tasks: follow the CommitSmith Journal workflow from bootstrap to commit, documenting findings.
+
+**Feedback**
+If a future ticket needs improvement, note it.
+
+**Acceptance criteria**
+- CommitSmith end-to-end workflows succeed solely with CLI integration enabled.
+- Documentation, logs, and settings are coherent and free of API remnants.
+- Changelog/release notes explain the migration/deprecation, and every issue uncovered during validation is recorded (closed or captured as follow-up tickets) before the epic is marked complete.
+
+**Dependencies**: Tickets 14–17
+
+---

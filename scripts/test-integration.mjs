@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { strict as assert } from 'node:assert';
-import Module from 'node:module';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
+import { strict as assert } from "node:assert";
+import Module from "node:module";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 const tempDir = path.dirname(fileURLToPath(import.meta.url));
 const registeredCommands = [];
@@ -23,20 +23,23 @@ class EventEmitter {
 
 const originalLoad = Module._load;
 Module._load = function mockedLoad(request, parent, isMain) {
-  if (request === 'vscode') {
+  if (request === "vscode") {
     return {
       EventEmitter,
       commands: {
         registerCommand: (id) => {
           registeredCommands.push(id);
           return { dispose() {} };
-        }
+        },
       },
       window: {
-        createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
+        createOutputChannel: () => ({
+          appendLine() {},
+          dispose() {},
+        }),
         showInformationMessage: async () => undefined,
         showWarningMessage: async () => undefined,
-        showErrorMessage: async () => undefined
+        showErrorMessage: async () => undefined,
       },
       extensions: {
         getExtension: () => ({
@@ -49,77 +52,88 @@ Module._load = function mockedLoad(request, parent, isMain) {
                   add: async () => {},
                   addDot: async () => {},
                   commit: async () => {},
-                  push: async () => {}
-                }
-              ]
-            })
+                  push: async () => {},
+                },
+              ],
+            }),
           },
-          activate: async () => {}
-        })
+          activate: async () => {},
+        }),
       },
       workspace: {
         workspaceFolders: [{ uri: { fsPath: tempDir } }],
-        getConfiguration: () => ({ get: (_key, defaultValue) => defaultValue }),
-        onDidChangeConfiguration: () => ({ dispose() {} })
-      }
+        getConfiguration: () => ({
+          get: (_key, defaultValue) => defaultValue,
+        }),
+        onDidChangeConfiguration: () => ({ dispose() {} }),
+      },
     };
   }
 
-  if (request.endsWith('./config')) {
+  if (request.endsWith("./config")) {
     return {
       getConfig: () => ({
-        formatCommand: 'npm run format:fix',
-        typecheckCommand: 'npm run typecheck',
-        testsCommand: 'npm test -- -w',
+        formatCommand: "npm run format:fix",
+        typecheckCommand: "npm run typecheck",
+        testsCommand: "npm test -- -w",
         pipelineEnable: true,
         pipelineMaxAiFixAttempts: 0,
         pipelineAbortOnFailure: true,
         commitPushAfter: false,
-        messageStyle: 'conventional',
+        messageStyle: "conventional",
         messageEnforce72: true,
         jiraFromBranch: true,
-        codexModel: 'gpt-5-codex',
-        codexEndpoint: 'http://localhost:9999',
-        codexTimeoutMs: 10000
+        codexModel: "gpt-5-codex",
+        codexBinaryPath: null,
+        codexExtraArgs: [],
       }),
       initializeConfigWatcher: () => {},
-      onDidChangeConfig: () => ({ dispose() {} })
+      onDidChangeConfig: () => ({ dispose() {} }),
     };
   }
 
-  if (request.endsWith('./journal')) {
+  if (request.endsWith("./journal")) {
     return {
       initializeJournal: async () => {},
-      readJournal: async () => ({ current: ['feat: test'], meta: {} }),
-      clearCurrent: async () => {}
+      readJournal: async () => ({
+        current: ["feat: test"],
+        meta: {},
+      }),
+      clearCurrent: async () => {},
     };
   }
 
-  if (request.endsWith('./utils/git')) {
+  if (request.endsWith("./utils/git")) {
     return {
       getRepo: async () => ({ rootUri: { fsPath: tempDir } }),
       commit: async () => {},
-      push: async () => {}
+      push: async () => {},
     };
   }
 
-  if (request.endsWith('./codex')) {
+  if (request.endsWith("./codex")) {
     const emitter = new EventEmitter();
     return {
-      generateCommitMessage: async () => 'test commit',
-      onCodexOfflineFallback: emitter.event.bind(emitter)
+      generateCommitMessage: async () => "test commit",
+      onCodexOfflineFallback: emitter.event.bind(emitter),
     };
   }
 
-  if (request.endsWith('./workflows/forgeCommit')) {
+  if (request.endsWith("./workflows/forgeCommit")) {
     return {
-      forgeCommitFromJournal: async () => ({ status: 'commit-success', pushFailed: false })
+      forgeCommitFromJournal: async () => ({
+        status: "commit-success",
+        pushFailed: false,
+      }),
     };
   }
 
-  if (request.endsWith('./workflows/dryRun')) {
+  if (request.endsWith("./workflows/dryRun")) {
     return {
-      performDryRun: async () => ({ status: 'completed', folder: tempDir })
+      performDryRun: async () => ({
+        status: "completed",
+        folder: tempDir,
+      }),
     };
   }
 
@@ -127,21 +141,24 @@ Module._load = function mockedLoad(request, parent, isMain) {
 };
 
 try {
-  const extension = await import('../dist/extension.js');
+  const extension = await import("../dist/extension.js");
   extension.activate({ subscriptions: [] });
 
   const expected = [
-    'commitSmith.generateFromJournal',
-    'commitSmith.clearJournal',
-    'commitSmith.installHooks',
-    'commitSmith.dryRun'
+    "commitSmith.generateFromJournal",
+    "commitSmith.clearJournal",
+    "commitSmith.installHooks",
+    "commitSmith.dryRun",
   ];
 
   for (const command of expected) {
-    assert(registeredCommands.includes(command), `Command ${command} not registered`);
+    assert(
+      registeredCommands.includes(command),
+      `Command ${command} not registered`,
+    );
   }
 
-  console.info('Integration tests passed');
+  console.info("Integration tests passed");
 } finally {
   Module._load = originalLoad;
 }

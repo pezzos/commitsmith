@@ -24,7 +24,7 @@ commit-smith/
 ├─ src/
 │  ├─ extension.ts              # Activation, command registration, entry point
 │  ├─ journal.ts                # Read/write .ai-commit-journal.yml
-│  ├─ codex.ts                  # API client for commit messages + AI fixes
+│  ├─ codex.ts                  # Codex CLI runner for commit messages + AI fixes
 │  ├─ pipeline.ts               # Pre-commit sequence (format/type/test)
 │  ├─ config.ts                 # Configuration management (VS Code settings)
 │  ├─ ui.ts                     # UI bindings (SCM button, notifications)
@@ -129,57 +129,27 @@ aiFix(errors: StepResult, repo: GitRepository): Promise<boolean>;
 
 ### 🧠 **3.3 Codex Integration (`codex.ts`)**
 
-**Purpose:**
-Communicate with Codex for:
+**Purpose:**  
+Interact with the Codex CLI (`codex exec`) to generate commit messages and AI fixes. The CLI streams JSONL events; CommitSmith aggregates reasoning logs, validates schema-compliant results, and records artefacts under `.commit-smith/patches/<timestamp>/cli/`.
 
-* Commit message generation (from journal)
-* AI Fixes (lint/type/test errors)
+**Execution flow:**
 
-**Endpoints:**
-
-* `POST /commit` → Generate commit message
-* `POST /fix` → Generate patch for failed step
-
-**Prompt Example (Commit):**
-
-```json
-{
-  "system": "You are an expert Git commit writer. Generate a concise, conventional commit message.",
-  "user": {
-    "journal": {
-      "current": [
-        "feat: expose orchestrator guard",
-        "refactor: split job runner in 3 modules"
-      ],
-      "meta": { "ticket": "T1335", "scope": "jobs-service" }
-    }
-  }
-}
-```
-
-**Prompt Example (Fix):**
-
-```json
-{
-  "system": "Fix lint/type/test issues in the provided file with minimal safe edits.",
-  "user": {
-    "file": "src/utils/queue.ts",
-    "error": "'Queue' is possibly 'undefined'.ts(2532)",
-    "code": "<file content here>"
-  }
-}
-```
+1. Build prompts via `src/codexCli/prompts.ts`, embedding schema identifiers (`codex-cli-commit.v1`, `codex-cli-fix.v1`).
+2. Spawn `codex exec <operation> --json --sandbox workspace --model <model> [extraArgs...]`.
+3. Stream JSONL events from `stdout`, logging reasoning once per message.
+4. Collect the terminal `result` event, parse against the JSON schema (Ajv), and emit validation errors through `CodexPromptValidationError`.
+5. Persist prompt text, raw events, parsed result, and schema metadata alongside dry-run artefacts for auditability.
 
 **Functions:**
 
 ```ts
-generateCommitMessage(journal: JournalData): Promise<string>;
-generateFix(errorData: FixContext): Promise<AIPatch>;
+generateCommitMessage(journal: JournalData, options?: CodexExecutionOptions): Promise<string>;
+generateFix(errorData: FixContext, options?: CodexExecutionOptions): Promise<AIPatch>;
 ```
 
-* Responses must follow the `AIPatch` unified diff contract in §3.8.
-* Validate incoming diffs via `git apply --check` and ensure touched files are either staged or explicitly part of the failing step, excluding `.commit-smith-ignore` matches.
-* Apply acceptable patches with `git apply`, restage only the affected files, and skip any patch that cannot be applied cleanly.
+* Fix responses must satisfy the unified diff contract in §3.8.
+* Validation failures and CLI errors trigger the offline fallback event emitter.
+* Optional `CodexExecutionOptions.recordArtifact` captures CLI artefacts (used by dry run).
 
 ---
 
@@ -202,9 +172,11 @@ Expose and load user-defined settings from VS Code configuration.
 | `commitSmith.message.enforce72`         | boolean | `true`                    | 72-char limit          |
 | `commitSmith.jira.fromBranch`           | boolean | `true`                    | Detect ticket          |
 | `commitSmith.codex.model`               | string  | `"gpt-5-codex"`           | Model name             |
-| `commitSmith.codex.endpoint`            | string  | `"http://localhost:9999"` | Codex API URL          |
-| `commitSmith.codex.timeoutMs`           | number  | `10000`                   | Codex request timeout  |
+| `commitSmith.codex.binaryPath`          | string  | `""`                      | Optional CLI path override |
+| `commitSmith.codex.extraArgs`           | string  | `""`                      | Extra CLI flags (space-separated) |
 | `commitSmith.pipeline.abortOnFailure`   | boolean | `true`                    | Abort pipeline on failure |
+
+**Codex CLI requirements:** install the Codex CLI (see [docs.cursor.com/codex-cli/install](https://docs.cursor.com/codex-cli/install)), authenticate with `codex login`, and ensure the binary is available on `PATH` (or set `commitSmith.codex.binaryPath`). Use `commitSmith.codex.extraArgs` for environment-specific flags such as `--profile`.
 
 **API:**
 
@@ -379,7 +351,7 @@ export type AIPatch = {
 
 **Offline Mode Behavior:**
 
-* Triggered when Codex returns a network error, non-200 response, or exceeds `commitSmith.codex.timeoutMs` (default 10s).
+* Triggered when Codex returns a CLI error, emits malformed JSON, or fails within the internal 60s timeout window.
 * Use staged changes to craft `chore: commit updated files [offline mode]` messages with a short file list.
 * Derive scope from the first file's folder when available and log a warning in `OUTPUT > CommitSmith`.
 

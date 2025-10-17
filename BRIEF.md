@@ -130,9 +130,10 @@ All options exposed via VS Code settings:
 | `commitSmith.message.enforce72`         | Enforce 72-char limit                  | `true`                  |
 | `commitSmith.jira.fromBranch`           | Extract ticket from branch             | `true`                  |
 | `commitSmith.codex.model`               | Codex model used                       | `gpt-5-codex`           |
-| `commitSmith.codex.timeoutMs`           | Codex request timeout (ms)             | `10000`                 |
+| `commitSmith.codex.extraArgs`           | Additional Codex CLI flags             | *(empty)*               |
 | `commitSmith.pipeline.abortOnFailure`   | Stop pipeline when a step fails        | `true`                  |
-Note: We must ensure `codex` is installed, configured and available.
+
+**Codex CLI prerequisites:** install the Codex CLI (`npm install -g codex` or download from [docs.cursor.com/codex-cli/install](https://docs.cursor.com/codex-cli/install)), ensure it’s on `PATH` (or configure `commitSmith.codex.binaryPath`), and authenticate with `codex login`. Optional flags (profiles, sandboxes) can be set via `commitSmith.codex.extraArgs`.
 
 ---
 
@@ -156,7 +157,7 @@ Note: We must ensure `codex` is installed, configured and available.
 | ------------- | --------------------------------------- |
 | `journal.ts`  | Read/write `.ai-commit-journal.yml`     |
 | `pipeline.ts` | Run pre-commit steps (format/type/test) |
-| `codex.ts`    | Call Codex for message & fixes          |
+| `codex.ts`    | Invoke Codex CLI for messages & fixes   |
 | `config.ts`   | Handle VS Code settings                 |
 | `ui.ts`       | SCM button, progress UI, notifications  |
 

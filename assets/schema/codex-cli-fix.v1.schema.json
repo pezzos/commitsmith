@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CommitSmith Codex CLI Fix Response (v1)",
+  "description": "Describes the expected unified diff payload returned by the Codex CLI when generating AI fixes. Increment the .vN suffix in both file name and schema id whenever the structure changes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["diff"],
+  "properties": {
+    "diff": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unified diff applying the requested fix."
+    },
+    "meta": {
+      "type": "object",
+      "description": "Optional metadata about the generated patch.",
+      "additionalProperties": false,
+      "properties": {
+        "producedBy": {
+          "type": "string",
+          "description": "Identifier describing the agent or workflow that produced the patch."
+        },
+        "step": {
+          "type": "string",
+          "enum": ["format", "typecheck", "tests"],
+          "description": "Pipeline step associated with this patch."
+        },
+        "note": {
+          "type": "string",
+          "description": "Additional context for reviewers."
+        }
+      }
+    }
+  }
+}
