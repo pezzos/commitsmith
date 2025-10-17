@@ -73,6 +73,7 @@ export async function performDryRun(
     const codexOptions = {
       recordArtifact: recordCliArtifact,
       workingDirectory: repoRoot,
+      log: options.log,
     };
 
     const hooks: PipelineHooks = {

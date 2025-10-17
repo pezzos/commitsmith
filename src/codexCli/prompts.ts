@@ -15,6 +15,7 @@ export interface CodexExecutionOptions {
   readonly recordArtifact?: CodexCliArtifactRecorder;
   readonly workingDirectory?: string;
   readonly skipGitRepoCheck?: boolean;
+  readonly log?: (message: string) => void;
 }
 
 export interface CodexPromptInvocation<T> {
@@ -71,6 +72,7 @@ export function buildCommitPrompt(
     `Return only JSON that satisfies schema ${schema.id}. Do not run commands that modify the repository (e.g. 'git commit', 'git push').`,
     "Craft a clear subject and body that communicate both what changed and why it matters.",
     "If you need more detail you may run read-only commands such as 'git status --short', 'git diff --cached', or 'cat <file>', but never modify files.",
+    "Focus on the files and topics mentioned in the journal. Avoid broad directory listings (e.g. 'ls') or large documentation reads unless a journal entry explicitly points to them.",
     "",
     "Journal entries:",
     ...(journal.current ?? []).map((entry, index) => {
@@ -155,6 +157,8 @@ export function buildFixPrompt(
     "",
     "Failure details:",
     context.errorMessage,
+    "",
+    "Inspect only the files necessary to address this failure. Avoid broad repo listings (e.g. 'ls') or unrelated documentation reads.",
   ];
 
   if (context.codeSnippet) {

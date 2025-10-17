@@ -461,7 +461,8 @@ async function attemptAiFix(
 ): Promise<boolean> {
   try {
     const context: FixContext = {
-      filePath: extractLikelyFilePath(result.stderr) ?? "unknown",
+      filePath:
+        extractLikelyFilePath(result.stderr, repoRoot) ?? "unknown",
       errorMessage: result.stderr,
       step,
     };
@@ -516,9 +517,82 @@ async function attemptAiFix(
   }
 }
 
-function extractLikelyFilePath(stderr: string): string | undefined {
-  const match = stderr.match(/\s(\S+\.[a-zA-Z0-9]+)/);
-  return match?.[1];
+function extractLikelyFilePath(
+  stderr: string,
+  repoRoot: string,
+): string | undefined {
+  const stackMatch = stderr.match(
+    /at (?:[^(]+\()?((?:file:\/\/)?[^\s)]+):\d+:\d+/,
+  );
+  if (stackMatch?.[1]) {
+    const normalized = normalizeStackPath(stackMatch[1], repoRoot);
+    if (!normalized.startsWith("node_modules/")) {
+      return normalized;
+    }
+  }
+
+  const extensionPattern =
+    /([^\s'"`]+?\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|markdown|yml|yaml|toml|ini|cfg|conf|config|lock|sh|bash|py|rb|go|rs|java|cs|cpp|c|hpp|h|m|swift|php|sql|html|htm|css|scss|less|vue|svelte|xml|tf))(?:[:]\d+)?/gi;
+  const matches: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = extensionPattern.exec(stderr)) !== null) {
+    const candidate = match[1];
+    // Strip surrounding characters like leading "(" or "./" left by the regex.
+    matches.push(candidate.replace(/^[(]/, "").replace(/[,.)]$/, ""));
+  }
+
+  if (matches.length === 0) {
+    return undefined;
+  }
+
+  const withSlash = matches.filter((candidate) => {
+    const hasSeparator =
+      candidate.includes("/") || candidate.includes("\\");
+    if (!hasSeparator) {
+      return false;
+    }
+    const normalized = normalizeStackPath(candidate, repoRoot);
+    return !normalized.startsWith("node_modules/");
+  });
+  if (withSlash.length > 0) {
+    return normalizeStackPath(
+      withSlash[withSlash.length - 1],
+      repoRoot,
+    );
+  }
+
+  const last = matches[matches.length - 1];
+  if (!last) {
+    return undefined;
+  }
+  const normalizedLast = normalizeStackPath(last, repoRoot);
+  if (normalizedLast.startsWith("node_modules/")) {
+    return undefined;
+  }
+  return normalizedLast;
+}
+
+function normalizeStackPath(raw: string, repoRoot: string): string {
+  const withoutScheme = raw.startsWith("file://")
+    ? raw.replace(/^file:\/\//, "")
+    : raw;
+  const normalizedRepoRoot = repoRoot
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+
+  let cleaned = withoutScheme.replace(/\\/g, "/");
+
+  if (
+    normalizedRepoRoot.length > 0 &&
+    cleaned.startsWith(normalizedRepoRoot)
+  ) {
+    cleaned = cleaned.slice(normalizedRepoRoot.length);
+  }
+
+  cleaned = cleaned.replace(/^\/+/, "");
+  cleaned = cleaned.replace(/^(\.\/)+/, "");
+
+  return cleaned;
 }
 
 async function applyPatch(cwd: string, diff: string): Promise<void> {

@@ -19,6 +19,11 @@ interface CodexCliRequest {
   readonly payload: any;
 }
 
+interface CliSpawnInvocation {
+  readonly command: string;
+  readonly args: string[];
+}
+
 const configStore: StubWorkspaceConfig = {
   "codex.model": "gpt-5-codex",
   "codex.reasoningLevel": "medium",
@@ -419,7 +424,7 @@ async function main(): Promise<void> {
     assert.equal(firstInvocation.command, "mock-codex");
     assert(firstInvocation.args.includes("--json"));
     assert(firstInvocation.args.includes("--sandbox"));
-    assert(firstInvocation.args.includes("workspace-write"));
+    assert(firstInvocation.args.includes("read-only"));
     assert(firstInvocation.args.includes("--profile"));
     assert(firstInvocation.args.includes("tests"));
     assert(
@@ -431,6 +436,14 @@ async function main(): Promise<void> {
       "-c",
       'reasoning.level="medium"',
     ]);
+    const firstFixInvocation = (
+      cliMock.spawnInvocations as CliSpawnInvocation[]
+    ).find((invocation) => invocation.args[1] === "fix");
+    assert(firstFixInvocation, "Expected Codex CLI fix invocation");
+    assert(
+      firstFixInvocation.args.includes("workspace-write"),
+      "Fix invocation should request workspace-write sandbox mode",
+    );
     assert(logEntries.length > 0);
 
     console.info("Codex client tests passed");

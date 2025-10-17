@@ -81,7 +81,7 @@ export async function generateCommitMessage(
   options?: CodexExecutionOptions,
 ): Promise<string> {
   const invocation = buildCommitPrompt(journal);
-  logPromptPreview("Commit", invocation.prompt);
+  logPromptPreview("Commit", invocation.prompt, options?.log);
   const rawEvents: string[] = [];
   const response = await runCodexCli<unknown>(
     invocation.operation,
@@ -105,6 +105,7 @@ export async function generateCommitMessage(
       log(
         "[Codex] CLI provided a commit message before failing; using recovered message.",
       );
+      logCliDiagnostics(rawEvents);
       await recordCliArtifact(
         invocation,
         options,
@@ -125,6 +126,8 @@ export async function generateCommitMessage(
         error,
       );
       emitValidationFallback(error);
+      logCliDiagnostics(rawEvents);
+      throw error;
     }
     logCliDiagnostics(rawEvents);
     throw error;
@@ -136,7 +139,7 @@ export async function generateFix(
   options?: CodexExecutionOptions,
 ): Promise<AIPatch> {
   const invocation = buildFixPrompt(context);
-  logPromptPreview("Fix", invocation.prompt);
+  logPromptPreview("Fix", invocation.prompt, options?.log);
   const rawEvents: string[] = [];
   const response = await runCodexCli<unknown>(
     invocation.operation,
@@ -179,14 +182,24 @@ export async function generateFix(
   }
 }
 
-function logPromptPreview(label: string, prompt: string): void {
-  logMultilineBlock(`${label} prompt`, prompt, MAX_PROMPT_LOG_LENGTH);
+function logPromptPreview(
+  label: string,
+  prompt: string,
+  forwardLog?: (message: string) => void,
+): void {
+  logMultilineBlock(
+    `${label} prompt`,
+    prompt,
+    MAX_PROMPT_LOG_LENGTH,
+    forwardLog,
+  );
 }
 
 function logMultilineBlock(
   label: string,
   text: string,
   limit: number,
+  forwardLog?: (message: string) => void,
 ): void {
   const trimmed = text.trim();
   if (trimmed.length === 0) {
@@ -197,9 +210,9 @@ function logMultilineBlock(
   const body = truncated
     ? `${trimmed.slice(0, limit)}...(truncated)`
     : trimmed;
-  log(
-    `[Codex] ${label} (${truncated ? "truncated" : "full"}):\n${body}`,
-  );
+  const message = `[Codex] ${label} (${truncated ? "truncated" : "full"}):\n${body}`;
+  log(message);
+  forwardLog?.(message);
 }
 
 function extractCommitResultFromEvents(
@@ -407,12 +420,14 @@ async function runCodexCli<T>(
   };
 
   const binary = resolveCodexBinary(config.codexBinaryPath);
+  const sandboxMode =
+    operation === "commit" ? "read-only" : "workspace-write";
   const args = [
     "exec",
     operation,
     "--json",
     "--sandbox",
-    "workspace-write",
+    sandboxMode,
     "--model",
     config.codexModel,
     ...config.codexExtraArgs,

@@ -49,7 +49,10 @@ export async function forgeCommitFromJournal(
     options.journalRoot ?? options.repo.rootUri.fsPath;
   const config = getConfig();
   const repoRoot = options.repo.rootUri.fsPath;
-  const codexOptions = { workingDirectory: repoRoot };
+  const codexOptions = {
+    workingDirectory: repoRoot,
+    log: options.log,
+  };
 
   try {
     await initializeJournal({ root: journalRoot });

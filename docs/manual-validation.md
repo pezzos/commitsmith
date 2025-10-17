@@ -14,16 +14,19 @@
    - Verify the output channel logs the onboarding status once.
 2. **Initializer**
    - Execute `CommitSmith: Initialize CommitSmith` and confirm `.ai-commit-journal.yml` is created or refreshed.
-3. **Dry run**
+3. **Journal CLI**
+   - Run `node ./bin/commit-smith.js journal --append "qa: manual validation"` and confirm the new entry appears in `.ai-commit-journal.yml`.
+   - (Optional) If you must use `npx`, provide a writable cache (for example `npm_config_cache=.npm-cache npx --yes commit-smith journal ...`) so the command succeeds under restrictive permissions.
+4. **Dry run**
    - Add a failing test or format issue.
    - Run `CommitSmith: Dry Run (Coming Soon)` and confirm CLI artefacts appear under `.commit-smith/patches/<timestamp>/cli/` with `prompt.txt`, `meta.json`, `raw.jsonl`, and `result.json`.
-4. **AI fix via pipeline**
+5. **AI fix via pipeline**
    - Introduce a lint error, then run the pipeline (format/type/test) to trigger `codex exec fix`.
    - Confirm the output channel logs a single reasoning sequence per CLI run.
-5. **Commit flow**
+6. **Commit flow**
    - Populate the journal and run `CommitSmith: AI Commit (Journal)`.
    - Ensure `codex exec commit` produces the commit message and the command completes without HTTP references.
-6. **Offline fallback**
+7. **Offline fallback**
    - Temporarily rename `codex` to simulate an error and repeat the commit flow to verify fallback messaging and heuristic commit creation.
 
 ## Findings
