@@ -134,7 +134,7 @@ try {
 
   await writeFile(
     journalPath,
-    'current:\n  - "feat: add offline fallback"\n',
+    'current:\n  - message: "feat: add offline fallback"\n    file: src/index.ts\n',
     "utf8",
   );
 

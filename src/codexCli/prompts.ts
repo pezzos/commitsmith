@@ -68,24 +68,50 @@ export function buildCommitPrompt(
 
   const promptLines: string[] = [
     "You are CommitSmith Codex.",
-    `Act as an expert release engineer generating a commit message that satisfies schema ${schema.id}.`,
+    `Return only JSON that satisfies schema ${schema.id}. Do not run commands that modify the repository (e.g. 'git commit', 'git push').`,
+    "Craft a clear subject and body that communicate both what changed and why it matters.",
+    "If you need more detail you may run read-only commands such as 'git status --short', 'git diff --cached', or 'cat <file>', but never modify files.",
     "",
     "Journal entries:",
-    ...(journal.current ?? []).map(
-      (entry, index) => `${index + 1}. ${entry}`,
-    ),
+    ...(journal.current ?? []).map((entry, index) => {
+      const fileLabel =
+        entry?.file && entry.file.length > 0
+          ? `${entry.file} — `
+          : "";
+      const message = entry?.message ?? "";
+      return `${index + 1}. ${fileLabel}${message}`.trim();
+    }),
   ];
 
   if (journal.meta && Object.keys(journal.meta).length > 0) {
     promptLines.push("", "Metadata:");
     for (const [key, value] of Object.entries(journal.meta)) {
+      if (key === "stagedFiles") {
+        continue;
+      }
       promptLines.push(`- ${key}: ${String(value)}`);
+    }
+  }
+
+  const stagedFilesMeta = journal.meta?.stagedFiles;
+  if (Array.isArray(stagedFilesMeta)) {
+    const stagedFiles = stagedFilesMeta
+      .map((file) =>
+        typeof file === "string" ? file.trim() : String(file),
+      )
+      .filter((file) => file.length > 0);
+    if (stagedFiles.length > 0) {
+      promptLines.push("", "Staged files to emphasise:");
+      for (const file of stagedFiles) {
+        promptLines.push(`- ${file}`);
+      }
     }
   }
 
   promptLines.push(
     "",
     "Reply with JSON matching the schema and include only fields described therein.",
+    "Summarise the most important technical changes and their motivations so the message reads well even without additional context.",
   );
 
   const payload = {

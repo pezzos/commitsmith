@@ -6,10 +6,27 @@
   "properties": {
     "current": {
       "type": "array",
+      "default": [],
       "items": {
-        "type": "string"
-      },
-      "default": []
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["message"]
+          }
+        ]
+      }
     },
     "meta": {
       "type": "object",

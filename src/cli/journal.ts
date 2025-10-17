@@ -8,7 +8,7 @@ import {
 
 function printHelp(): void {
   console.log(
-    'Usage: commit-smith journal --append "<entry>" [--meta key=value ...]',
+    'Usage: commit-smith journal --append "<message>" [--file path/to/file] [--meta key=value ...]',
   );
   console.log(
     "Appends a new entry to the AI commit journal managed by CommitSmith and optionally updates metadata.",
@@ -35,9 +35,13 @@ async function handleJournalCommand(
   }
 
   const metaUpdates = parseMetaUpdates(args);
+  const filePath = parseFileFlag(args);
 
   await initializeJournal(options);
-  await addEntry(entry, options);
+  await addEntry(
+    filePath ? { file: filePath, message: entry } : entry,
+    options,
+  );
   if (Object.keys(metaUpdates).length > 0) {
     await updateJournalMeta(metaUpdates, options);
   }
@@ -137,5 +141,21 @@ function coerceMetaValue(raw: string): unknown {
     return trimmed.slice(1, -1);
   }
 
+  return trimmed;
+}
+
+function parseFileFlag(args: string[]): string | undefined {
+  const fileIndex = args.indexOf("--file");
+  if (fileIndex === -1) {
+    return undefined;
+  }
+  const value = args[fileIndex + 1];
+  if (!value) {
+    throw new Error("Missing file path after --file.");
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new Error("File path after --file must be non-empty.");
+  }
   return trimmed;
 }

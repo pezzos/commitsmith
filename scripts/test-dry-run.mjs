@@ -153,7 +153,8 @@ try {
   const journalPath = path.join(repoDir, ".ai-commit-journal.yml");
   const journalContent = [
     "current:",
-    '  - \"feat: verify dry-run workflow\"',
+    "  - file: src/workflows/dryRun.ts",
+    '    message: \"feat: verify dry-run workflow\"',
     "meta:",
     "  scope: dry-run-test",
   ].join("\n");

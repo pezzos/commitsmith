@@ -53,8 +53,10 @@ function queueDefaultCommit(
 ) {
   mock.queueHandler((io: any, request: CodexCliRequest) => {
     const journal = request?.payload?.context?.journal ?? {};
-    const entries: string[] = Array.isArray(journal.current)
-      ? journal.current
+    const entries = Array.isArray(journal.current)
+      ? journal.current.map((entry: any) =>
+          typeof entry === "string" ? entry : (entry?.message ?? ""),
+        )
       : [];
     io.respond(
       [
@@ -177,7 +179,12 @@ async function main(): Promise<void> {
     queueDefaultCommit(cliMock);
     const commitLogStart = logEntries.length;
     const message = await generateCommitMessage(
-      { current: ["feat: add tests"], meta: {} },
+      {
+        current: [
+          { message: "feat: add tests", file: "src/index.ts" },
+        ],
+        meta: {},
+      },
       codexOptions,
     );
     assert.equal(message, "Commit: feat: add tests");
@@ -311,7 +318,12 @@ async function main(): Promise<void> {
     const authLogStart = logEntries.length;
     try {
       await generateCommitMessage(
-        { current: ["feat: failure"], meta: {} },
+        {
+          current: [
+            { message: "feat: failure", file: "src/index.ts" },
+          ],
+          meta: {},
+        },
         codexOptions,
       );
     } catch (error) {
@@ -338,7 +350,12 @@ async function main(): Promise<void> {
     const missingLogStart = logEntries.length;
     try {
       await generateCommitMessage(
-        { current: ["feat: missing"], meta: {} },
+        {
+          current: [
+            { message: "feat: missing", file: "src/index.ts" },
+          ],
+          meta: {},
+        },
         codexOptions,
       );
     } catch (error) {
@@ -369,7 +386,15 @@ async function main(): Promise<void> {
     const schemaLogStart = logEntries.length;
     try {
       await generateCommitMessage(
-        { current: ["feat: invalid schema"], meta: {} },
+        {
+          current: [
+            {
+              message: "feat: invalid schema",
+              file: "src/index.ts",
+            },
+          ],
+          meta: {},
+        },
         codexOptions,
       );
     } catch (error) {

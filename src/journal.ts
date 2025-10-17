@@ -4,6 +4,11 @@ import path from "node:path";
 import YAML from "yaml";
 import Ajv, { ValidateFunction } from "ajv";
 
+export interface JournalEntry {
+  readonly file?: string;
+  readonly message: string;
+}
+
 export interface JournalMeta {
   readonly ticketFromBranch?: boolean;
   readonly scope?: string;
@@ -13,7 +18,7 @@ export interface JournalMeta {
 }
 
 export interface JournalData {
-  current: string[];
+  current: JournalEntry[];
   meta?: JournalMeta;
 }
 
@@ -122,25 +127,32 @@ export async function readJournal(
     );
   }
 
-  const data: JournalData = {
-    current: Array.isArray(parsed.current) ? [...parsed.current] : [],
-    meta: sanitizeMeta(parsed.meta),
-  };
+  const parsedCurrent = Array.isArray(
+    (parsed as { current?: unknown }).current,
+  )
+    ? ((parsed as { current?: unknown }).current as unknown[])
+    : [];
+  const currentEntries = normalizeJournalEntries(parsedCurrent);
 
-  return data;
+  return {
+    current: currentEntries,
+    meta: sanitizeMeta((parsed as { meta?: unknown }).meta),
+  };
 }
 
 export async function addEntry(
-  entry: string,
+  entry: string | JournalEntry,
   options?: JournalOptions,
 ): Promise<void> {
-  if (!entry || !entry.trim()) {
-    throw new Error("Journal entry text must be a non-empty string.");
-  }
-
   const journalPath = getJournalPath(options);
   const journal = await readJournal(options);
-  journal.current.push(entry.trim());
+  const normalized = normalizeEntry(entry);
+  if (!normalized) {
+    throw new Error(
+      "Journal entry must include a non-empty message.",
+    );
+  }
+  journal.current = [...journal.current, normalized];
   await writeJournal(journal, journalPath);
 }
 
@@ -178,7 +190,7 @@ async function writeJournal(
   journalPath: string,
 ): Promise<void> {
   const payload: JournalData = {
-    current: [...data.current],
+    current: serializeEntries(data.current),
     meta: sanitizeMeta(data.meta),
   };
 
@@ -196,6 +208,54 @@ async function writeJournal(
 
   const serialized = YAML.stringify(payload);
   await fs.writeFile(journalPath, serialized, "utf8");
+}
+
+function normalizeEntry(entry: unknown): JournalEntry | undefined {
+  if (typeof entry === "string") {
+    const message = entry.trim();
+    if (message.length === 0) {
+      return undefined;
+    }
+    return { message };
+  }
+
+  if (!entry || typeof entry !== "object") {
+    return undefined;
+  }
+
+  const rawMessage = (entry as { message?: unknown }).message;
+  const rawFile = (entry as { file?: unknown }).file;
+  if (typeof rawMessage !== "string") {
+    return undefined;
+  }
+  const message = rawMessage.trim();
+  if (message.length === 0) {
+    return undefined;
+  }
+
+  const file =
+    typeof rawFile === "string" && rawFile.trim().length > 0
+      ? rawFile.trim()
+      : undefined;
+
+  return file ? { message, file } : { message };
+}
+
+function normalizeJournalEntries(entries: unknown[]): JournalEntry[] {
+  const result: JournalEntry[] = [];
+  for (const entry of entries) {
+    const normalized = normalizeEntry(entry);
+    if (normalized) {
+      result.push(normalized);
+    }
+  }
+  return result;
+}
+
+function serializeEntries(entries: JournalEntry[]): JournalEntry[] {
+  return entries
+    .map((entry) => normalizeEntry(entry))
+    .filter((entry): entry is JournalEntry => Boolean(entry));
 }
 
 function sanitizeMeta(meta: unknown): JournalMeta | undefined {

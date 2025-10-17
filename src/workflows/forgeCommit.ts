@@ -1,12 +1,14 @@
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import path from "node:path";
+import * as vscode from "vscode";
 
 import { getConfig } from "../config";
 import {
   initializeJournal,
   readJournal,
   clearCurrent,
+  JournalData,
 } from "../journal";
 import {
   runPipeline,
@@ -75,8 +77,16 @@ export async function forgeCommitFromJournal(
     let usedOfflineFallback = false;
 
     try {
+      const stagedFiles = await listStagedFiles(repoRoot);
+      const journalForPrompt: JournalData = {
+        current: journal.current,
+        meta: {
+          ...journal.meta,
+          stagedFiles,
+        },
+      };
       commitMessage = await generateCommitMessage(
-        journal,
+        journalForPrompt,
         codexOptions,
       );
     } catch (error) {
@@ -85,6 +95,12 @@ export async function forgeCommitFromJournal(
       commitMessage = buildOfflineCommitMessage(stagedFiles);
       options.log(
         `[OFFLINE ⚠️] Codex unavailable (${(error as Error).message ?? "unknown reason"}). Generated heuristic commit message.`,
+      );
+      options.log(
+        "[Codex] CLI events have been written to the CommitSmith output channel for inspection.",
+      );
+      void vscode.window.showWarningMessage(
+        `[CommitSmith] Codex could not provide a commit message. Fallback used. Reason: ${(error as Error).message}`,
       );
     }
 

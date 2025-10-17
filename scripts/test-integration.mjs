@@ -96,7 +96,7 @@ Module._load = function mockedLoad(request, parent, isMain) {
     return {
       initializeJournal: async () => {},
       readJournal: async () => ({
-        current: ["feat: test"],
+        current: [{ message: "feat: test", file: "src/example.ts" }],
         meta: {},
       }),
       clearCurrent: async () => {},

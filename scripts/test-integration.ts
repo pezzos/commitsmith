@@ -107,7 +107,7 @@ const moduleLoad = Module._load;
     return {
       initializeJournal: async () => {},
       readJournal: async () => ({
-        current: ["feat: test"],
+        current: [{ message: "feat: test", file: "src/example.ts" }],
         meta: {},
       }),
       clearCurrent: async () => {},
