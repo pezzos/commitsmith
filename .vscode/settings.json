@@ -1,0 +1,4 @@
+{
+  "commitSmith.codex.serenaOverride": "{command=\"/Users/a.pezzotta/.local/bin/uvx\",args=[\"--from\",\"git+https://github.com/oraios/serena\",\"serena-mcp-server\",\"--context\",\"codex\",\"--project\",\"/Users/a.pezzotta/repos/commitsmith\"],optional=true,autostart=false,startup_timeout_ms=30000,request_timeout_ms=15000}",
+  "commitSmith.codex.mcpWhitelist": ["serena"]
+}

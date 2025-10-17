@@ -103,16 +103,20 @@ export function createCodexCliMock() {
       child,
       respond(events = [], options = {}) {
         const { exitCode = 0, stderrText } = options;
-        if (Array.isArray(events)) {
+        if (Array.isArray(events) && !stdout.writableEnded) {
           for (const event of events) {
             stdout.write(`${JSON.stringify(event)}\n`);
           }
         }
-        stdout.end();
-        if (stderrText) {
+        if (!stdout.writableEnded) {
+          stdout.end();
+        }
+        if (stderrText && !stderr.writableEnded) {
           stderr.write(stderrText);
         }
-        stderr.end();
+        if (!stderr.writableEnded) {
+          stderr.end();
+        }
         setImmediate(() => child.emit("close", exitCode));
       },
       error(message = "Codex CLI failed", exitCode = 1) {

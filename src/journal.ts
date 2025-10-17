@@ -57,9 +57,18 @@ export async function initializeJournal(
   try {
     await readJournal({ ...options, createIfMissing: false });
   } catch (error) {
-    throw new Error(
-      `Existing journal failed validation: ${(error as Error).message}`,
+    if (options?.createIfMissing === false) {
+      throw new Error(
+        `Existing journal failed validation: ${(error as Error).message}`,
+      );
+    }
+
+    const reason =
+      error instanceof Error ? error.message : String(error);
+    logJournalWarning(
+      `Existing journal invalid; resetting (reason: ${reason})`,
     );
+    await writeJournal(DEFAULT_JOURNAL, journalPath);
   }
 }
 
@@ -194,6 +203,18 @@ function sanitizeMeta(meta: unknown): JournalMeta | undefined {
     return {};
   }
   return { ...(meta as Record<string, unknown>) };
+}
+
+function logJournalWarning(message: string): void {
+  const formatted = `[CommitSmith][journal] ${message}`;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires -- dynamic require avoids VS Code dependency in tests
+    const outputModule =
+      require("./output") as typeof import("./output");
+    outputModule.getOutputChannel().appendLine(formatted);
+  } catch {
+    console.warn(formatted);
+  }
 }
 
 function getValidator(): ValidateFunction<JournalData> {

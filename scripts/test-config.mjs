@@ -23,6 +23,7 @@ const defaults = {
   codexReasoningLevel: "low",
   codexBinaryPath: null,
   codexExtraArgs: [],
+  codexSerenaOverride: null,
   codexTimeoutMs: 120_000,
   codexSerenaTimeoutMs: 180_000,
   codexMcpWhitelist: [],
@@ -133,6 +134,10 @@ try {
     defaults.codexExtraArgs,
   );
   assert.equal(
+    configDefaults.codexSerenaOverride,
+    defaults.codexSerenaOverride,
+  );
+  assert.equal(
     configDefaults.codexTimeoutMs,
     defaults.codexTimeoutMs,
   );
@@ -156,6 +161,10 @@ try {
   configurationStore.set("codex.timeoutMs", 150000);
   configurationStore.set("codex.serenaTimeoutMs", 200000);
   configurationStore.set("codex.mcpWhitelist", ["github", "serena"]);
+  configurationStore.set(
+    "codex.serenaOverride",
+    '{command="mock-serena",optional=true}',
+  );
 
   const configOverrides = getConfig();
 
@@ -176,6 +185,10 @@ try {
     "github",
     "serena",
   ]);
+  assert.equal(
+    configOverrides.codexSerenaOverride,
+    '{command="mock-serena",optional=true}',
+  );
 
   configurationStore.set("pipeline.maxAiFixAttempts", -1);
   configurationStore.set("codex.extraArgs", "");
@@ -184,6 +197,7 @@ try {
   configurationStore.set("codex.mcpWhitelist", [123, ""]);
   configurationStore.set("codex.model", "unsupported");
   configurationStore.set("codex.reasoningLevel", "extreme");
+  configurationStore.set("codex.serenaOverride", 123);
 
   const configInvalid = getConfig();
 
@@ -208,6 +222,10 @@ try {
   assert.equal(
     configInvalid.codexReasoningLevel,
     defaults.codexReasoningLevel,
+  );
+  assert.equal(
+    configInvalid.codexSerenaOverride,
+    defaults.codexSerenaOverride,
   );
 
   console.info("Config tests passed");

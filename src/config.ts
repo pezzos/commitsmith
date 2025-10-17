@@ -29,6 +29,7 @@ export interface CommitSmithConfig {
   readonly codexReasoningLevel: CodexReasoningLevel;
   readonly codexBinaryPath: string | null;
   readonly codexExtraArgs: string[];
+  readonly codexSerenaOverride: string | null;
   readonly codexTimeoutMs: number;
   readonly codexSerenaTimeoutMs: number;
   readonly codexMcpWhitelist: readonly string[];
@@ -52,6 +53,7 @@ const DEFAULTS: CommitSmithConfig = {
   codexReasoningLevel: "low",
   codexBinaryPath: null,
   codexExtraArgs: [],
+  codexSerenaOverride: null,
   codexTimeoutMs: 120_000,
   codexSerenaTimeoutMs: 180_000,
   codexMcpWhitelist: [],
@@ -151,6 +153,9 @@ export function getConfig(): CommitSmithConfig {
     codexExtraArgs: parseCliArgs(
       settings.get<string>("codex.extraArgs", ""),
     ),
+    codexSerenaOverride: parseSerenaOverride(
+      settings.get<string>("codex.serenaOverride", ""),
+    ),
     codexTimeoutMs: clampMinimum(
       settings.get<number>(
         "codex.timeoutMs",
@@ -196,10 +201,10 @@ function coerceMessageStyle(
   value: string | undefined,
   fallback: MessageStyle,
 ): MessageStyle {
-  if (
-    value &&
-    (MESSAGE_STYLES as readonly string[]).includes(value)
-  ) {
+  if (!value) {
+    return fallback;
+  }
+  if ((MESSAGE_STYLES as readonly string[]).includes(value)) {
     return value as MessageStyle;
   }
   console.warn(
@@ -261,4 +266,14 @@ function parseStringArray(
   return value
     .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
     .filter((entry) => entry.length > 0);
+}
+
+function parseSerenaOverride(
+  value: string | undefined,
+): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }

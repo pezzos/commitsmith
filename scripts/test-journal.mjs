@@ -43,18 +43,9 @@ const journalPath = getJournalPath({ root: tmpDir });
 const invalidYaml = "current: 123";
 await writeFile(journalPath, invalidYaml, "utf8");
 
-let validationFailed = false;
-try {
-  await readJournal({ root: tmpDir });
-} catch (error) {
-  validationFailed = true;
-  assert.match(error.message, /validation failed/i);
-}
-
-assert.equal(validationFailed, true);
-
-// Restore valid journal for cleanliness
-await initializeJournal({ root: tmpDir });
+const autoRestored = await readJournal({ root: tmpDir });
+assert.deepEqual(autoRestored.current, []);
+assert.deepEqual(autoRestored.meta, {});
 
 await runCli(
   [

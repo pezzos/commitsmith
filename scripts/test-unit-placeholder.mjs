@@ -166,23 +166,11 @@ try {
 }
 assert.equal(gitignoreExists, false);
 
-// initializeJournal should validate without rewriting invalid files
-let initializeJournalError;
-try {
-  await initializeJournal({ root: invalidDir });
-} catch (error) {
-  initializeJournalError = error;
-}
-assert.ok(initializeJournalError instanceof Error);
-assert.match(
-  initializeJournalError.message,
-  /Existing journal failed validation/i,
-);
-const invalidJournalAfterHelper = await readFile(
-  invalidJournalPath,
-  "utf8",
-);
-assert.equal(invalidJournalAfterHelper, "current: 123\n");
+// initializeJournal should now restore invalid journals automatically
+await initializeJournal({ root: invalidDir });
+const restoredJournal = await readJournal({ root: invalidDir });
+assert.deepEqual(restoredJournal.current, []);
+assert.deepEqual(restoredJournal.meta, {});
 
 // gitignore CRLF preservation and idempotency
 const crlfDir = await mkdtemp(

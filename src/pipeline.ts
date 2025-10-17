@@ -594,6 +594,14 @@ async function listChangedFiles(root: string): Promise<string[]> {
       const statusX = entry[0] ?? " ";
       const statusY = entry[1] ?? " ";
 
+      const isUntracked = statusX === "?" && statusY === "?";
+      const hasWorktreeChange = statusY !== " " && statusY !== "!";
+      const needsRestage = isUntracked || hasWorktreeChange;
+
+      if (!needsRestage) {
+        continue;
+      }
+
       let pathStart = 3;
       if (entry.length > 3 && entry[2] !== " ") {
         const spaceIndex = entry.indexOf(" ");

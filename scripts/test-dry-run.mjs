@@ -59,6 +59,9 @@ const vscodeStub = {
       return { fsPath };
     },
   },
+  ProgressLocation: {
+    Notification: 1,
+  },
   workspace: {
     getConfiguration(namespace) {
       if (namespace !== "commitSmith") {
@@ -85,6 +88,9 @@ const vscodeStub = {
           outputLines.push(value);
         },
       };
+    },
+    withProgress(_, task) {
+      return task({ report() {} });
     },
   },
 };
@@ -252,9 +258,13 @@ try {
     line.includes("[FORMAT ⏭️]"),
   );
   assert.ok(
-    formatSkipLog?.includes(
-      'No non-mutating variant found for "npm run format:fix".',
-    ),
+    formatSkipLog &&
+      (formatSkipLog.includes(
+        'No non-mutating variant found for "npm run format:fix".',
+      ) ||
+        formatSkipLog.includes(
+          "Cannot derive non-mutating variant for",
+        )),
     "Skip reason should be logged",
   );
 

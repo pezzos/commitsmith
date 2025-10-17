@@ -2,7 +2,7 @@
   "name": "commit-smith",
   "displayName": "CommitSmith",
   "description": "Forge high-quality commits with Codex-assisted workflows.",
-  "version": "0.0.21",
+  "version": "0.0.30",
   "publisher": "epicsmith",
   "license": "MIT",
   "main": "./dist/extension.js",
@@ -15,16 +15,18 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:unit": "npm run compile && node ./scripts/test-unit-placeholder.mjs",
     "test:config": "npm run compile && node ./scripts/test-config.mjs",
-    "test:git": "node --loader ts-node/esm ./scripts/test-git.ts",
+    "test:git": "node ./scripts/test-git.mjs",
     "test:codex": "node -r ts-node/register ./scripts/test-codex.ts",
     "test:journal": "npm run compile && node ./scripts/test-journal.mjs",
     "test:pipeline": "npm run compile && node ./scripts/test-pipeline.mjs",
     "test:integration": "npm run compile && node ./scripts/test-integration.mjs",
     "test:dry-run": "npm run compile && node ./scripts/test-dry-run.mjs",
     "test:offline": "npm run compile && node ./scripts/test-offline.mjs",
+    "test:all": "npm run test:unit && npm run test:config && npm run test:git && npm run test:codex && npm run test:journal && npm run test:pipeline && npm run test:integration && npm run test:dry-run && npm run test:offline",
     "format:check": "prettier --check . --config .prettierrc.json",
     "format:fix": "prettier --write . --config .prettierrc.json",
-    "lint": "tsc --noEmit -p tsconfig.json"
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "package": "npm version patch --no-git-tag-version && npm run compile && vsce package"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -184,6 +186,12 @@
             "type": "string",
             "default": "",
             "description": "Additional space-separated flags appended to Codex CLI invocations (e.g. \"--profile staging\")."
+          },
+          "commitSmith.codex.serenaOverride": {
+            "type": "string",
+            "default": "",
+            "description": "Optional MCP override passed as -c mcp_servers.serena=… when invoking the Codex CLI (e.g. '{command=\"/path/to/serena\",optional=true}').",
+            "order": 90
           }
         }
       }

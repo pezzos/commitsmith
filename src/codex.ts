@@ -24,6 +24,8 @@ export type { CodexExecutionOptions } from "./codexCli/prompts";
 const DEFAULT_CLI_TIMEOUT_MS = 120000;
 const DEFAULT_CLI_BINARY = "codex";
 const HOMEBREW_CLI_PATH = "/opt/homebrew/bin/codex";
+const MAX_PROMPT_LOG_LENGTH = 2000;
+const MAX_CLI_LOG_LENGTH = 2000;
 
 export type PipelineStep = "format" | "typecheck" | "tests";
 
@@ -116,6 +118,7 @@ export async function generateFix(
   options?: CodexExecutionOptions,
 ): Promise<AIPatch> {
   const invocation = buildFixPrompt(context);
+  logPromptPreview("Fix", invocation.prompt);
   const rawEvents: string[] = [];
   const response = await runCodexCli<unknown>(
     invocation.operation,
@@ -156,6 +159,29 @@ export async function generateFix(
     }
     throw error;
   }
+}
+
+function logPromptPreview(label: string, prompt: string): void {
+  logMultilineBlock(`${label} prompt`, prompt, MAX_PROMPT_LOG_LENGTH);
+}
+
+function logMultilineBlock(
+  label: string,
+  text: string,
+  limit: number,
+): void {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return;
+  }
+
+  const truncated = trimmed.length > limit;
+  const body = truncated
+    ? `${trimmed.slice(0, limit)}...(truncated)`
+    : trimmed;
+  log(
+    `[Codex] ${label} (${truncated ? "truncated" : "full"}):\n${body}`,
+  );
 }
 
 interface CommitResponse {
@@ -250,6 +276,13 @@ async function runCodexCli<T>(
     ...config.codexExtraArgs,
   ];
 
+  if (config.codexSerenaOverride) {
+    args.push(
+      "-c",
+      `mcp_servers.serena=${config.codexSerenaOverride}`,
+    );
+  }
+
   const mcpOverrides = getMcpOverrideArgs(config);
   if (mcpOverrides.length > 0) {
     args.push(...mcpOverrides);
@@ -288,6 +321,36 @@ async function runCodexCli<T>(
       progress.report({ message: "Contacting Codex CLI…" });
 
       return new Promise<T>((resolve, reject) => {
+        let stdoutBuffer = "";
+        let stderrBuffer = "";
+        const rawStdoutChunks: string[] = [];
+        const rawStderrChunks: string[] = [];
+        let resultPayload: T | undefined;
+        let cliError: Error | undefined;
+        let settled = false;
+        let didTimeout = false;
+        let emittedFallback = false;
+        let loggedCliOutput = false;
+
+        const logCliFailureOutputOnce = () => {
+          if (loggedCliOutput) {
+            return;
+          }
+          loggedCliOutput = true;
+          const stdoutText = rawStdoutChunks.join("") || stdoutBuffer;
+          const stderrText = rawStderrChunks.join("") || stderrBuffer;
+          logMultilineBlock(
+            "CLI stdout",
+            stdoutText,
+            MAX_CLI_LOG_LENGTH,
+          );
+          logMultilineBlock(
+            "CLI stderr",
+            stderrText,
+            MAX_CLI_LOG_LENGTH,
+          );
+        };
+
         const child = spawn(binary, args, {
           stdio: ["pipe", "pipe", "pipe"],
           env: { ...process.env },
@@ -296,13 +359,6 @@ async function runCodexCli<T>(
         });
 
         const timeoutMs = selectCodexTimeout(config);
-        let stdoutBuffer = "";
-        let stderrBuffer = "";
-        let resultPayload: T | undefined;
-        let cliError: Error | undefined;
-        let settled = false;
-        let didTimeout = false;
-        let emittedFallback = false;
 
         const timeoutHandle = setTimeout(() => {
           if (settled) {
@@ -330,6 +386,7 @@ async function runCodexCli<T>(
           if (error.code === "ENOENT") {
             logCliGuidance("missing-binary");
           }
+          logCliFailureOutputOnce();
           emitFallbackOnce("network", enriched);
           progress.report({ message: enriched.message });
           reject(enriched);
@@ -339,6 +396,7 @@ async function runCodexCli<T>(
         if (stdout) {
           stdout.setEncoding("utf8");
           stdout.on("data", (chunk: string) => {
+            rawStdoutChunks.push(chunk);
             stdoutBuffer += chunk;
             stdoutBuffer = processCliLines(stdoutBuffer, (line) => {
               options?.onEvent?.(line);
@@ -357,6 +415,7 @@ async function runCodexCli<T>(
         if (stderr) {
           stderr.setEncoding("utf8");
           stderr.on("data", (chunk: string) => {
+            rawStderrChunks.push(chunk);
             stderrBuffer += chunk;
           });
         }
@@ -397,12 +456,14 @@ async function runCodexCli<T>(
             const timeoutError = new Error(
               `Codex CLI timed out after ${timeoutMs}ms`,
             );
+            logCliFailureOutputOnce();
             emitFallbackOnce("timeout", timeoutError);
             progress.report({ message: timeoutError.message });
             return reject(timeoutError);
           }
 
           if (cliError) {
+            logCliFailureOutputOnce();
             emitFallbackOnce("network", cliError);
             progress.report({ message: cliError.message });
             return reject(cliError);
@@ -423,6 +484,7 @@ async function runCodexCli<T>(
             ) {
               logCliGuidance("missing-binary");
             }
+            logCliFailureOutputOnce();
             emitFallbackOnce("network", error);
             progress.report({ message: error.message });
             return reject(error);
@@ -432,6 +494,7 @@ async function runCodexCli<T>(
             const error = new Error(
               "Codex CLI did not return a result payload.",
             );
+            logCliFailureOutputOnce();
             emitFallbackOnce("network", error);
             progress.report({ message: error.message });
             return reject(error);

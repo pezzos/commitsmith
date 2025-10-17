@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { GitRepository } from "../types/git";
 import type { API as GitApi, GitExtension } from "./internal/git";
@@ -9,8 +11,10 @@ import { getOutputChannel } from "../output";
 let repositoryWarningShown = false;
 let initializationReminderShown = false;
 
-const GIT_RESOLUTION_TIMEOUT_MS = 20000;
-const GIT_RESOLUTION_INTERVAL_MS = 2000;
+const execFileAsync = promisify(execFile);
+
+let GIT_RESOLUTION_TIMEOUT_MS = 20000;
+let GIT_RESOLUTION_INTERVAL_MS = 2000;
 
 export interface GetRepoOptions {
   readonly suppressInitializationReminder?: boolean;
@@ -100,9 +104,61 @@ export async function stageModified(
       await repo.addDot();
     }
   } catch (error) {
-    logError("Failed to stage changes", error);
-    throw error;
+    await stageWithCliFallback(repo, files, error);
   }
+}
+
+async function stageWithCliFallback(
+  repo: GitRepository,
+  files: string[] | undefined,
+  originalError: unknown,
+): Promise<void> {
+  logError("Failed to stage changes via Git API", originalError);
+
+  try {
+    await runGitAdd(repo.rootUri.fsPath, files);
+    logInfo("[git] Changes staged via git CLI fallback.");
+  } catch (fallbackError) {
+    logError("Git CLI fallback failed", fallbackError);
+    throw fallbackError;
+  }
+}
+
+async function runGitAdd(
+  repoRoot: string,
+  files: string[] | undefined,
+): Promise<void> {
+  const normalizedRoot = path.resolve(repoRoot);
+  const targetFiles = files ?? [];
+  const relativeFiles = targetFiles.map((file) =>
+    toRepoRelativePath(normalizedRoot, file),
+  );
+
+  const args =
+    relativeFiles.length > 0
+      ? ["add", "--", ...relativeFiles]
+      : ["add", "--all"];
+
+  await execFileAsync("git", args, {
+    cwd: normalizedRoot,
+    maxBuffer: 1024 * 1024,
+  });
+}
+
+function toRepoRelativePath(repoRoot: string, file: string): string {
+  const absolutePath = path.isAbsolute(file)
+    ? path.resolve(file)
+    : path.resolve(repoRoot, file);
+
+  const relativePath = path.relative(repoRoot, absolutePath);
+  if (
+    relativePath.startsWith("..") ||
+    path.isAbsolute(relativePath)
+  ) {
+    throw new Error(`Cannot stage path outside repository: ${file}`);
+  }
+
+  return relativePath === "" ? "." : relativePath;
 }
 
 export async function commit(
@@ -128,6 +184,17 @@ export async function push(repo: GitRepository): Promise<void> {
     logError("Push failed", error);
     throw error;
   }
+}
+
+/**
+ * Internal escape hatch for unit tests; do not use in production code.
+ */
+export function __setGitResolutionForTests(
+  timeoutMs: number,
+  intervalMs: number,
+): void {
+  GIT_RESOLUTION_TIMEOUT_MS = timeoutMs;
+  GIT_RESOLUTION_INTERVAL_MS = intervalMs;
 }
 
 async function resolveRepository(): Promise<

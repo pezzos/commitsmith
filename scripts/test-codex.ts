@@ -24,6 +24,8 @@ const configStore: StubWorkspaceConfig = {
   "codex.reasoningLevel": "medium",
   "codex.binaryPath": "mock-codex",
   "codex.extraArgs": "--profile tests",
+  "codex.serenaOverride":
+    '{command="serena-mock",args=["--project","/tmp/mock"],optional=true}',
   "message.style": "conventional",
 };
 
@@ -395,6 +397,11 @@ async function main(): Promise<void> {
     assert(firstInvocation.args.includes("workspace-write"));
     assert(firstInvocation.args.includes("--profile"));
     assert(firstInvocation.args.includes("tests"));
+    assert(
+      firstInvocation.args.includes(
+        'mcp_servers.serena={command="serena-mock",args=["--project","/tmp/mock"],optional=true}',
+      ),
+    );
     assert.deepEqual(firstInvocation.args.slice(-2), [
       "-c",
       'reasoning.level="medium"',
