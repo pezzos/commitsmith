@@ -100,6 +100,22 @@ export async function generateCommitMessage(
     await recordCliArtifact(invocation, options, rawEvents, parsed);
     return parsed.message.trim();
   } catch (error) {
+    const recovered = extractCommitResultFromEvents(rawEvents);
+    if (recovered) {
+      log(
+        "[Codex] CLI provided a commit message before failing; using recovered message.",
+      );
+      await recordCliArtifact(
+        invocation,
+        options,
+        rawEvents,
+        recovered,
+        error instanceof CodexPromptValidationError
+          ? error
+          : undefined,
+      );
+      return recovered.message.trim();
+    }
     if (error instanceof CodexPromptValidationError) {
       await recordCliArtifact(
         invocation,
@@ -189,6 +205,33 @@ function logMultilineBlock(
   log(
     `[Codex] ${label} (${truncated ? "truncated" : "full"}):\n${body}`,
   );
+}
+
+function extractCommitResultFromEvents(
+  events: string[],
+): CommitResponse | undefined {
+  if (!events || events.length === 0) {
+    return undefined;
+  }
+
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const line = events[index];
+    try {
+      const parsed = JSON.parse(line);
+      if (
+        parsed &&
+        parsed.type === "result" &&
+        parsed.payload &&
+        typeof parsed.payload.message === "string"
+      ) {
+        return { message: parsed.payload.message };
+      }
+    } catch {
+      // ignore malformed lines
+    }
+  }
+
+  return undefined;
 }
 
 interface CommitResponse {

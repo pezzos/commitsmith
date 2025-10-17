@@ -2,7 +2,7 @@
   "name": "commit-smith",
   "displayName": "CommitSmith",
   "description": "Forge high-quality commits with Codex-assisted workflows.",
-  "version": "0.0.31",
+  "version": "0.0.32",
   "publisher": "epicsmith",
   "license": "MIT",
   "main": "./dist/extension.js",
