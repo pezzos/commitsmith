@@ -73,6 +73,7 @@ export function buildCommitPrompt(
     "Craft a clear subject and body that communicate both what changed and why it matters.",
     "If you need more detail you may run read-only commands such as 'git status --short', 'git diff --cached', or 'cat <file>', but never modify files.",
     "Focus on the files and topics mentioned in the journal. Avoid broad directory listings (e.g. 'ls') or large documentation reads unless a journal entry explicitly points to them.",
+    "Journal entries are already collected for you; do not run `commit-smith` commands or write to `.ai-commit-journal.yml`.",
     "",
     "Journal entries:",
     ...(journal.current ?? []).map((entry, index) => {
