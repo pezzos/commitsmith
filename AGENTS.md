@@ -3,6 +3,8 @@
 
 CommitSmith relies on `.ai-commit-journal.yml` to store Codex-authored change summaries. Run the initializer command `CommitSmith: Initialize CommitSmith` (`commitSmith.initializeRepo`) if this file is missing.
 
+> These instructions describe the human workflow. Automated Codex runs in read-only sandboxes must not attempt to execute `commit-smith` commands; just produce the requested outputs and rely on humans to record the journal entry.
+
 Make sure the Codex CLI is installed (`codex` available on your PATH or configured via `commitSmith.codex.binaryPath`) and authenticated with `codex login` before starting a task.
 
 At the end of each task, Codex MUST append journal entries via the CLI (CommitSmith never self-appends). Include metadata flags when you know the scope or ticket:

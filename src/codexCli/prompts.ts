@@ -74,6 +74,8 @@ export function buildCommitPrompt(
     "If you need more detail you may run read-only commands such as 'git status --short', 'git diff --cached', or 'cat <file>', but never modify files.",
     "Focus on the files and topics mentioned in the journal. Avoid broad directory listings (e.g. 'ls') or large documentation reads unless a journal entry explicitly points to them.",
     "Journal entries are already collected for you; do not run `commit-smith` commands or write to `.ai-commit-journal.yml`.",
+    "Important: you are only drafting the commit message. The environment is read-only; do not attempt any shell commands or mention permission issues—simply return the JSON response.",
+    "Always reply with valid JSON conforming to the schema. Do not include explanations or side comments.",
     "",
     "Journal entries:",
     ...(journal.current ?? []).map((entry, index) => {

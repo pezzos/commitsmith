@@ -41,6 +41,7 @@ export async function ensureJournalWorkflowSection(
     `<!-- slug: ${JOURNAL_WORKFLOW_SLUG} -->`,
     "",
     "CommitSmith relies on `.ai-commit-journal.yml` to store Codex-authored change summaries. Run the initializer command `CommitSmith: Initialize CommitSmith` (`commitSmith.initializeRepo`) if this file is missing.",
+    "> These instructions describe the human workflow. Automated Codex runs in read-only sandboxes must not attempt to execute `commit-smith` commands; they should only produce the requested outputs while humans record journal entries.",
     "",
     "At the end of each task, Codex MUST append journal entries via the CLI (CommitSmith never self-appends). Include `--meta key=value` flags to capture scope, tickets, or other context when available:",
     "```bash",
