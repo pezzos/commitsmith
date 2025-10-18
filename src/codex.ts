@@ -255,6 +255,15 @@ function extractCommitResultFromEvents(
     return { message: commitFromCommand };
   }
 
+  if (shouldDebugEvents()) {
+    const tail = events.slice(-5).join("\n");
+    logMultilineBlock(
+      "Commit CLI events (tail)",
+      tail,
+      MAX_CLI_LOG_LENGTH,
+    );
+  }
+
   return undefined;
 }
 
@@ -305,6 +314,17 @@ function logCliDiagnostics(events: string[]): void {
       MAX_CLI_LOG_LENGTH,
     );
   }
+}
+
+function shouldDebugEvents(): boolean {
+  const flag = process.env.CODEX_DEBUG;
+  if (!flag) {
+    return false;
+  }
+  return flag
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .some((value) => value.toLowerCase() === "events");
 }
 
 function safeParseCliEvent(raw: string): any | undefined {
@@ -422,6 +442,7 @@ async function runCodexCli<T>(
   const binary = resolveCodexBinary(config.codexBinaryPath);
   const sandboxMode =
     operation === "commit" ? "read-only" : "workspace-write";
+  const debugEvents = shouldDebugEvents();
   const args = [
     "exec",
     operation,
@@ -462,6 +483,7 @@ async function runCodexCli<T>(
   log(
     `[Codex] exec ${operation} model=${config.codexModel} binary=${binary}`,
   );
+  log(`[Codex] args ${JSON.stringify(args)}`);
 
   const progressTitle =
     operation === "fix"
@@ -557,6 +579,9 @@ async function runCodexCli<T>(
             stdoutBuffer += chunk;
             stdoutBuffer = processCliLines(stdoutBuffer, (line) => {
               options?.onEvent?.(line);
+              if (debugEvents) {
+                log(`[Codex][raw-event] ${line}`);
+              }
               try {
                 const event = JSON.parse(line) as CodexCliEvent<T>;
                 handleCliEvent(event);
@@ -596,6 +621,9 @@ async function runCodexCli<T>(
               `${stdoutBuffer}\n`,
               (line) => {
                 options?.onEvent?.(line);
+                if (debugEvents) {
+                  log(`[Codex][raw-event] ${line}`);
+                }
                 try {
                   const event = JSON.parse(line) as CodexCliEvent<T>;
                   handleCliEvent(event);
