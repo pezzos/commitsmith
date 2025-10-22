@@ -223,12 +223,15 @@ function extractCommitResultFromEvents(
   }
 
   let commitFromCommand: string | undefined;
+  const parsedEvents: CodexCliEvent<unknown>[] = [];
 
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = safeParseCliEvent(events[index]);
     if (!event) {
       continue;
     }
+
+    parsedEvents.push(event);
 
     if (
       event.type === "result" &&
@@ -260,6 +263,15 @@ function extractCommitResultFromEvents(
     logMultilineBlock(
       "Commit CLI events (tail)",
       tail,
+      MAX_CLI_LOG_LENGTH,
+    );
+    const parsedTail = parsedEvents
+      .slice(0, 5)
+      .map((event) => JSON.stringify(event))
+      .join("\n");
+    logMultilineBlock(
+      "Commit CLI parsed events (tail)",
+      parsedTail,
       MAX_CLI_LOG_LENGTH,
     );
   }
@@ -325,6 +337,11 @@ function shouldDebugEvents(): boolean {
     .split(/[\s,]+/)
     .filter(Boolean)
     .some((value) => value.toLowerCase() === "events");
+}
+
+function logRawEvent(line: string): void {
+  const timestamp = new Date().toISOString();
+  log(`[Codex][raw-event][${timestamp}] ${line}`);
 }
 
 function safeParseCliEvent(raw: string): any | undefined {
@@ -580,7 +597,7 @@ async function runCodexCli<T>(
             stdoutBuffer = processCliLines(stdoutBuffer, (line) => {
               options?.onEvent?.(line);
               if (debugEvents) {
-                log(`[Codex][raw-event] ${line}`);
+                logRawEvent(line);
               }
               try {
                 const event = JSON.parse(line) as CodexCliEvent<T>;
@@ -622,7 +639,7 @@ async function runCodexCli<T>(
               (line) => {
                 options?.onEvent?.(line);
                 if (debugEvents) {
-                  log(`[Codex][raw-event] ${line}`);
+                  logRawEvent(line);
                 }
                 try {
                   const event = JSON.parse(line) as CodexCliEvent<T>;
