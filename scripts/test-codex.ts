@@ -111,7 +111,10 @@ function assertSingleLog(
   startIndex: number,
 ): void {
   const slice = logEntries.slice(startIndex);
-  const matches = slice.filter((line) => line.includes(substring));
+  const matches = slice.filter(
+    (line) =>
+      !line.startsWith('[Codex][raw-event]') && line.includes(substring),
+  );
   assert.equal(
     matches.length,
     1,

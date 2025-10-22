@@ -528,6 +528,20 @@ async function runCodexCli<T>(
         let emittedFallback = false;
         let loggedCliOutput = false;
 
+        const emitCliLine = (line: string) => {
+          options?.onEvent?.(line);
+          if (debugEvents) {
+            logRawEvent(line);
+          }
+          try {
+            const event = JSON.parse(line) as CodexCliEvent<T>;
+            handleCliEvent(event);
+          } catch (error) {
+            log(`[Codex] Received malformed CLI event: ${line}`);
+            progress.report({ message: line });
+          }
+        };
+
         const logCliFailureOutputOnce = () => {
           if (loggedCliOutput) {
             return;
@@ -594,19 +608,7 @@ async function runCodexCli<T>(
           stdout.on("data", (chunk: string) => {
             rawStdoutChunks.push(chunk);
             stdoutBuffer += chunk;
-            stdoutBuffer = processCliLines(stdoutBuffer, (line) => {
-              options?.onEvent?.(line);
-              if (debugEvents) {
-                logRawEvent(line);
-              }
-              try {
-                const event = JSON.parse(line) as CodexCliEvent<T>;
-                handleCliEvent(event);
-              } catch (error) {
-                log(`[Codex] Received malformed CLI event: ${line}`);
-                progress.report({ message: line });
-              }
-            });
+            stdoutBuffer = processCliLines(stdoutBuffer, emitCliLine);
           });
         }
 
@@ -636,21 +638,7 @@ async function runCodexCli<T>(
           if (stdoutBuffer.trim().length > 0) {
             stdoutBuffer = processCliLines(
               `${stdoutBuffer}\n`,
-              (line) => {
-                options?.onEvent?.(line);
-                if (debugEvents) {
-                  logRawEvent(line);
-                }
-                try {
-                  const event = JSON.parse(line) as CodexCliEvent<T>;
-                  handleCliEvent(event);
-                } catch (error) {
-                  log(
-                    `[Codex] Received malformed CLI event: ${line}`,
-                  );
-                  progress.report({ message: line });
-                }
-              },
+              emitCliLine,
             );
           }
 
