@@ -17,8 +17,8 @@ Identify every CommitSmith code path that still relies on `--prompt-file` or `--
 While implementing the ticket, if you notice that a future ticket needs improvement or a new ticket should be created, please take action.
 
 **Acceptance criteria**
-- Inventory of `--prompt-file`/`--dry-run` usage is complete, captured at `docs/codex-commit-issue.md#legacy-flag-inventory`, and explicitly covers extension settings, CLI wrappers, CI automation, and partner tooling (both in-repo and external consumers).
-- Entries clearly mark which areas require code changes versus communication-only updates and assign named owners.
+- Inventory of `--prompt-file`/`--dry-run` usage is published at `docs/codex-commit-issue.md#legacy-flag-inventory`, covering all in-repo callers, extension settings, CI scripts, and partner/custom tooling.
+- Each inventory entry tags whether the follow-up is a code change or communication-only update and records an accountable owner so downstream work remains tracked.
 - No code changes beyond annotations and documentation.
 
 **Dependencies**: None
@@ -44,10 +44,10 @@ Before rewriting the invocation flow, the extension must refuse to run with outd
 While implementing the ticket, if you notice that a future ticket needs improvement or a new ticket should be created, please take action.
 
 **Acceptance criteria**
-- Minimum supported Codex CLI version/handshake signature (e.g., `codex --version >= X.Y.Z` or `stdin-support` capability) is defined, enforced, and documented.
+- Minimum supported Codex CLI version or handshake signature (e.g., `codex --version >= X.Y.Z` or `stdin-support` capability) is explicitly documented, enforced in code, and communicated to users.
 - Guard caches probe results per VS Code session so the binary is probed only once per launch.
-- Legacy Codex binaries are blocked with a clear “upgrade” message and surfaced in telemetry dashboards/alerts for ops visibility.
-- Telemetry records guard activations.
+- Guard failures emit a clear “upgrade Codex CLI” message and surface in telemetry dashboards/alerts for fast operational visibility.
+- Telemetry events capture guard activations using the versioned payload schema.
 - Unit tests cover pass/fail paths.
 
 **Dependencies**: Ticket 1
@@ -74,8 +74,8 @@ While implementing the ticket, if you notice that a future ticket needs improvem
 
 **Acceptance criteria**
 - Codex invocation uses the stdin contract, logs stdin write/back-pressure timing metrics, and satisfies the documented child-process behaviour.
-- Environment/profile propagation is byte-for-byte identical to the current helper (no behavioural drift), with a checklist verifying sandbox selection remains unchanged.
-- Each entrypoint (commit/fix/diagnostics) emits an adoption metric distinguishing legacy vs new helper usage.
+- Environment/profile propagation is byte-for-byte identical to the current helper, with a checklist confirming sandbox selection remains unchanged.
+- Each entrypoint (commit/fix/diagnostics) emits adoption metrics distinguishing legacy vs new helper usage.
 
 **Dependencies**: Ticket 2
 
@@ -101,9 +101,9 @@ Guarantee the new CLI contract through automated tests and ensure failures no lo
 While implementing the ticket, if you notice that a future ticket needs improvement or a new ticket should be created, please take action.
 
 **Acceptance criteria**
-- Tests cover contract, failure, and telemetry scenarios, including verification that journal updates fire once on success.
-- Integration harness executes against read-only and workspace-write sandboxes.
-- CI executes the harness in both sandbox modes using the deterministic fixture directory and fails if the CLI contract regresses.
+- Mocked Codex fixture under `scripts/fixtures/codex-fake/` passes in both read-only and workspace-write sandboxes during CI.
+- Negative paths fail fast without falling back to heuristic messaging.
+- Regression coverage asserts exactly one journal emission per successful run and exercises telemetry assertions.
 
 **Dependencies**: Ticket 3
 
@@ -128,9 +128,9 @@ Reduce commit latency while keeping formatter/typecheck/test protections availab
 While implementing the ticket, if you notice that a future ticket needs improvement or a new ticket should be created, please take action.
 
 **Acceptance criteria**
-- Fast lane is the default, guarded lane is selectable, and both honour existing configuration and pipeline hooks (webhooks, journal updates).
-- Async formatter/typecheck/test execution respects existing hooks, prevents duplicate runs when toggling lanes, and documentation explains how stale results are surfaced and refreshed.
-- Manual commands for checks are clearly surfaced.
+- Fast lane is the default, guarded lane is selectable, and both honour existing configuration and pipeline hooks (webhooks, journal updates, custom scripts).
+- Async formatter/typecheck/test execution prevents duplicate runs when toggling lanes and documents how stale results remain visible and refreshable.
+- Manual commands for checks are clearly surfaced so users retain status visibility.
 
 **Dependencies**: Ticket 3
 
@@ -155,9 +155,9 @@ Ensure users understand the new fast lane and how to run checks manually without
 While implementing the ticket, if you notice that a future ticket needs improvement or a new ticket should be created, please take action.
 
 **Acceptance criteria**
-- Toast appears once per user, includes screenshots or Storybook review for UX sign-off, and can be dismissed permanently.
+- Toast appears once per user, is backed by UX sign-off artefacts (screenshots or Storybook review), and can be dismissed permanently.
 - Manual command links are available in the UI.
-- Automated tests prove the dismissal preference survives reloads and host restarts.
+- Automated coverage proves the dismissal preference survives reloads and host restarts.
 
 **Dependencies**: Ticket 5
 
@@ -182,9 +182,9 @@ Measure the impact of the new flow and validate that we maintain success rates w
 While implementing the ticket, if you notice that a future ticket needs improvement or a new ticket should be created, please take action.
 
 **Acceptance criteria**
-- Telemetry payloads carry a schema version, differentiate legacy vs new/shadow invocation paths, and appear side-by-side in documented dashboards prior to rollout.
+- Versioned telemetry payloads carry a schema version, differentiate legacy vs new/shadow invocation paths, and appear side-by-side in documented dashboards prior to rollout.
 - Staging verification checklist is scripted, executed, and signed off before production rollout.
-- Documentation (including AGENTS.md) is updated with metric definitions, dashboard locations, and staging verification steps.
+- Documentation, including inline updates to AGENTS.md, records metric definitions, dashboard locations, and staging verification steps.
 
 **Dependencies**: Ticket 3
 
@@ -210,8 +210,8 @@ Deploy the new invocation safely, communicate changes, and provide guidance for 
 While implementing the ticket, if you notice that a future ticket needs improvement or a new ticket should be created, please take action.
 
 **Acceptance criteria**
-- Feature flag controls legacy vs new invocation; shadow mode telemetry is captured and reviewed for at least one week with go/no-go tied to Ticket 7 telemetry parity.
-- Rollback checklist, preview → GA communication timeline, and exit-criteria checklist are documented, including rollback window details.
+- Feature flag controls legacy vs new invocation; shadow mode telemetry is captured and reviewed for at least one week with go/no-go tied to Ticket 7 telemetry parity and a signed rollback checklist before GA.
+- Rollout documentation includes a preview → GA timeline, explicit rollback window, and communication plan.
 - Migration note includes the new CLI contract, required Codex version, manual steps for scripted `runCodexCli`, and is linked from AGENTS.md and internal documentation.
 
 **Dependencies**: Tickets 3, 4, 7

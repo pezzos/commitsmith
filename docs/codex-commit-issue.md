@@ -600,6 +600,16 @@ Reading prompt from stdin...
 3. Review the commit workflow pipeline so it no longer chains long-running tasks (format/typecheck/tests) when invoking Codex purely for messaging; document interim manual steps until the automation is trimmed.
 4. Communicate the fix plan to the Codex tooling owners and update this journal once the patch lands, so downstream investigators know the CLI itself no longer needs escalation.
 
+## Legacy Flag Inventory
+
+| Area | Location(s) | Observed usage | Required action | Owner |
+| --- | --- | --- | --- | --- |
+| Extension settings | `src/config.ts`, `package.json` (`commitSmith.codex.extraArgs`), README guidance on extra args | Defaults ship without the legacy flags, but any workspace setting that still lists `--prompt-file`/`--dry-run` is forwarded verbatim via `codexExtraArgs`. | Code change – block or strip these flags during config parsing and highlight the change in the release notes/migration guide. | Alex Pezzotta (Extension Eng) |
+| CLI wrappers (commit/fix/diagnostics) | `src/codex.ts`, `dist/codex.js` runtime bundle | `runCodexCli` no longer appends the flags; the only injection path is through `codexExtraArgs`. Tests (`scripts/test-utils/mock-codex-cli.js`, `scripts/test-codex*.ts`) currently accept any args. | Code change – extend tests to assert the banned flags never appear and keep the sanitized invocation when Ticket 3 rewrites the command builder. | Priya Desai (Codex integration) |
+| CI automation | `.github/workflows/release.yml` | Release pipeline builds/publishes the VSIX but never shells out to the Codex CLI, so no direct flag usage. | Communication – ensure the release checklist calls out the new CLI contract so rebuilt VSIX packages stay in sync once the rewrite lands. | Morgan Lee (Release engineering) |
+| Partner tooling (in-repo harnesses) | `scripts/test-utils/mock-codex-cli.js`, `scripts/test-codex-runner.ts`, `scripts/test-codex.ts` | Harnesses intercept `spawn` and replay fixtures without ever touching the legacy flags. | Code change – add fixture coverage that fails fast if future changes reintroduce `--prompt-file`/`--dry-run`. | Jordan Silva (Tooling QA) |
+| Partner tooling (external consumers) | Published VSIX artifacts (`commit-smith-0.0.39`…`0.0.46`), downstream teams using `commitSmith.codex.extraArgs` overrides | Latest packaged extension (`commit-smith-0.0.46.vsix`) no longer contains the flags, but older deployments or custom automation may still have them in settings overrides. | Communication – broadcast the deprecation to partner teams and confirm they purge the flags from managed settings before the CLI rewrite ships. | Casey Morgan (Partner success) |
+
 ## Attachments / References
 - `src/codexCli/prompts.ts` – commit prompt text with latest instructions.
 - `src/codex.ts` – instrumentation for CLI args & raw event tracing.
