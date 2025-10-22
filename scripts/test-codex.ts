@@ -125,6 +125,7 @@ function assertSingleLog(
 async function main(): Promise<void> {
   const cliMock = createCodexCliMock();
   const originalLoad = (Module as any)._load;
+  let telemetrySubscription: { dispose(): void } | undefined;
   cliMock.install((request: string) => {
     if (request === "vscode") {
       return {
@@ -174,6 +175,20 @@ async function main(): Promise<void> {
       generateFix,
       onCodexOfflineFallback,
     } = codexModule;
+    const telemetryModule = await import(
+      path.resolve(__dirname, "../dist/telemetry.js")
+    );
+    const telemetryEvents: any[] = [];
+    telemetrySubscription = telemetryModule.onTelemetryEvent(
+      (event: unknown) => telemetryEvents.push(event),
+    );
+    const codexTestUtils = codexModule.__codexTestUtils ?? {};
+    codexTestUtils.resetCodexCompatibilityForTest?.();
+    const minimumSupportedVersion =
+      codexTestUtils.minCodexCliVersionForTest ?? "0.6.0";
+    cliMock.setDefaultVersionResponse(
+      `codex ${minimumSupportedVersion}`,
+    );
 
     const fallbackSubscription = onCodexOfflineFallback(
       (event: unknown) => fallbackEvents.push(event),
@@ -420,28 +435,93 @@ async function main(): Promise<void> {
     );
     assertSingleLog("[Codex] exec commit", schemaLogStart);
 
+    codexTestUtils.resetCodexCompatibilityForTest?.();
+    configStore["codex.binaryPath"] = "mock-codex-old";
+    cliMock.setVersionResponse("codex 0.0.1", "mock-codex-old");
+    telemetryEvents.length = 0;
+    let guardError: unknown;
+    try {
+      await generateCommitMessage(
+        {
+          current: [
+            { message: "feat: legacy guard", file: "src/index.ts" },
+          ],
+          meta: {},
+        },
+        codexOptions,
+      );
+    } catch (error) {
+      guardError = error;
+    }
+    assert(guardError instanceof Error);
+    assert.match(
+      (guardError as Error).message,
+      /Upgrade the Codex CLI/,
+    );
+    const guardTelemetry = telemetryEvents.find(
+      (event: any) =>
+        event?.name === "codexCli.versionGuard" &&
+        event?.properties?.outcome === "outdated",
+    );
+    assert(guardTelemetry, "Expected telemetry event for guard failure");
+    assert.equal(
+      cliMock.spawnInvocations.filter(
+        (invocation: CliSpawnInvocation) =>
+          invocation.command === "mock-codex-old" &&
+          invocation.args.length === 1 &&
+          invocation.args[0] === "--version",
+      ).length,
+      1,
+    );
+    assert(
+      !cliMock.spawnInvocations.some(
+        (invocation: CliSpawnInvocation) =>
+          invocation.command === "mock-codex-old" &&
+          invocation.args[0] === "exec",
+      ),
+      "Guard failure should prevent exec invocation",
+    );
+    configStore["codex.binaryPath"] = "mock-codex";
+    cliMock.setVersionResponse(null, "mock-codex-old");
+
     fallbackSubscription.dispose();
 
-    assert.equal(cliMock.spawnInvocations.length >= 3, true);
-    const firstInvocation = cliMock.spawnInvocations[0];
-    assert.equal(firstInvocation.command, "mock-codex");
-    assert(firstInvocation.args.includes("--json"));
-    assert(firstInvocation.args.includes("--sandbox"));
-    assert(firstInvocation.args.includes("read-only"));
-    assert(firstInvocation.args.includes("--profile"));
-    assert(firstInvocation.args.includes("tests"));
+    const spawnInvocations: CliSpawnInvocation[] =
+      cliMock.spawnInvocations as CliSpawnInvocation[];
+    const versionInvocations = spawnInvocations.filter(
+      (invocation: CliSpawnInvocation) =>
+        invocation.args.length === 1 && invocation.args[0] === "--version",
+    );
+    assert.equal(
+      versionInvocations.filter(
+        (invocation: CliSpawnInvocation) =>
+          invocation.command === "mock-codex",
+      ).length,
+      1,
+      "Expected a single version probe for the default binary",
+    );
+    const execInvocation = spawnInvocations.find(
+      (invocation: CliSpawnInvocation) => invocation.args[0] === "exec",
+    );
+    assert(execInvocation, "Expected Codex CLI exec invocation");
+    const execArgs = execInvocation.args;
+    assert(execArgs.includes("--json"));
+    assert(execArgs.includes("--sandbox"));
+    assert(execArgs.includes("read-only"));
+    assert(execArgs.includes("--profile"));
+    assert(execArgs.includes("tests"));
     assert(
-      firstInvocation.args.includes(
+      execArgs.includes(
         'mcp_servers.serena={command="serena-mock",args=["--project","/tmp/mock"],optional=true}',
       ),
     );
-    assert.deepEqual(firstInvocation.args.slice(-2), [
+    assert.deepEqual(execArgs.slice(-2), [
       "-c",
       'reasoning.level="medium"',
     ]);
-    const firstFixInvocation = (
-      cliMock.spawnInvocations as CliSpawnInvocation[]
-    ).find((invocation) => invocation.args[1] === "fix");
+    const firstFixInvocation = spawnInvocations.find(
+      (invocation) => invocation.args[0] === "exec" && invocation.args[1] === "fix",
+    );
     assert(firstFixInvocation, "Expected Codex CLI fix invocation");
     assert(
       firstFixInvocation.args.includes("workspace-write"),
@@ -451,6 +531,7 @@ async function main(): Promise<void> {
 
     console.info("Codex client tests passed");
   } finally {
+    telemetrySubscription?.dispose();
     cliMock.uninstall();
     (Module as any)._load = originalLoad;
   }

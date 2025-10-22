@@ -18,6 +18,7 @@ import {
   parseCliResult,
   recordCliArtifact,
 } from "./codexCli/prompts";
+import { recordTelemetry } from "./telemetry";
 
 export type { CodexExecutionOptions } from "./codexCli/prompts";
 
@@ -26,6 +27,8 @@ const DEFAULT_CLI_BINARY = "codex";
 const HOMEBREW_CLI_PATH = "/opt/homebrew/bin/codex";
 const MAX_PROMPT_LOG_LENGTH = 2000;
 const MAX_CLI_LOG_LENGTH = 20000;
+const MIN_CODEX_CLI_VERSION = "0.6.0";
+const CODEX_CLI_VERSION_TIMEOUT_MS = 5000;
 
 export type PipelineStep = "format" | "typecheck" | "tests";
 
@@ -75,6 +78,21 @@ interface CodexCliRequest {
 const offlineFallbackEmitter =
   new vscode.EventEmitter<CodexOfflineFallbackEvent>();
 export const onCodexOfflineFallback = offlineFallbackEmitter.event;
+
+class CodexCliCompatibilityError extends Error {
+  readonly version?: string;
+
+  constructor(message: string, version?: string) {
+    super(message);
+    this.name = "CodexCliCompatibilityError";
+    this.version = version;
+  }
+}
+
+const codexCompatibilityChecks = new Map<
+  string,
+  Promise<string | undefined>
+>();
 
 export async function generateCommitMessage(
   journal: JournalData,
@@ -439,6 +457,177 @@ function log(message: string): void {
   getOutputChannel().appendLine(message);
 }
 
+async function ensureCodexCliSupportsStdin(binary: string): Promise<void> {
+  let check = codexCompatibilityChecks.get(binary);
+  if (!check) {
+    check = performCodexCliCompatibilityCheck(binary);
+    codexCompatibilityChecks.set(binary, check);
+  }
+  await check;
+}
+
+function performCodexCliCompatibilityCheck(
+  binary: string,
+): Promise<string | undefined> {
+  return new Promise((resolve, reject) => {
+    let timeoutHandle: NodeJS.Timeout | undefined;
+    let settled = false;
+    const fail = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+      reject(error);
+    };
+    const succeed = (version?: string) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+      resolve(version);
+    };
+
+    const child = spawn(binary, ["--version"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
+      cwd: process.cwd(),
+      windowsHide: true,
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    if (child.stdout) {
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => {
+        stdout += chunk;
+      });
+    }
+
+    if (child.stderr) {
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk: string) => {
+        stderr += chunk;
+      });
+    }
+
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      fail(error);
+    });
+
+    child.on("close", (code) => {
+      if (settled) {
+        return;
+      }
+      const combinedOutput = [stdout.trim(), stderr.trim()]
+        .filter((part) => part.length > 0)
+        .join("\n");
+
+      if (code !== 0) {
+        const message =
+          combinedOutput.length > 0
+            ? `Codex CLI version probe failed: ${combinedOutput}`
+            : `Codex CLI version probe exited with code ${code}`;
+        fail(new Error(message));
+        return;
+      }
+
+      const version = parseCodexCliVersion(combinedOutput);
+      if (!version) {
+        const error = new CodexCliCompatibilityError(
+          `Unable to determine Codex CLI version from output: ${combinedOutput || "(empty)"}. Upgrade Codex CLI to version ${MIN_CODEX_CLI_VERSION} or newer.`,
+        );
+        logCliGuidance("upgrade", {
+          binary,
+          version: "unknown",
+          minimumVersion: MIN_CODEX_CLI_VERSION,
+        });
+        recordVersionGuardTelemetry(binary, "unparseable");
+        fail(error);
+        return;
+      }
+
+      if (compareSemver(version, MIN_CODEX_CLI_VERSION) < 0) {
+        const error = new CodexCliCompatibilityError(
+          `Codex CLI binary "${binary}" is out of date (reported ${version}; requires ${MIN_CODEX_CLI_VERSION}+). Upgrade the Codex CLI to continue.`,
+          version,
+        );
+        logCliGuidance("upgrade", {
+          binary,
+          version,
+          minimumVersion: MIN_CODEX_CLI_VERSION,
+        });
+        recordVersionGuardTelemetry(binary, "outdated", version);
+        fail(error);
+        return;
+      }
+
+      log(`[Codex] CLI version ${version} validated for stdin support.`);
+      succeed(version);
+    });
+
+    timeoutHandle = setTimeout(() => {
+      child.kill();
+      const error = new CodexCliCompatibilityError(
+        `Codex CLI version probe timed out after ${CODEX_CLI_VERSION_TIMEOUT_MS}ms.`,
+      );
+      recordVersionGuardTelemetry(binary, "timeout");
+      fail(error);
+    }, CODEX_CLI_VERSION_TIMEOUT_MS);
+  });
+}
+
+function parseCodexCliVersion(output: string): string | undefined {
+  const match = output.match(/v?(\d+\.\d+\.\d+)/);
+  return match?.[1];
+}
+
+function compareSemver(a: string, b: string): number {
+  const parse = (value: string): [number, number, number] => {
+    const parts = value.split(".", 3);
+    return [
+      Number.parseInt(parts[0] ?? "0", 10) || 0,
+      Number.parseInt(parts[1] ?? "0", 10) || 0,
+      Number.parseInt(parts[2] ?? "0", 10) || 0,
+    ];
+  };
+  const [aMajor, aMinor, aPatch] = parse(a);
+  const [bMajor, bMinor, bPatch] = parse(b);
+
+  if (aMajor !== bMajor) {
+    return aMajor - bMajor;
+  }
+  if (aMinor !== bMinor) {
+    return aMinor - bMinor;
+  }
+  return aPatch - bPatch;
+}
+
+type VersionGuardOutcome = "outdated" | "unparseable" | "timeout";
+
+function recordVersionGuardTelemetry(
+  binary: string,
+  outcome: VersionGuardOutcome,
+  version?: string,
+): void {
+  recordTelemetry({
+    name: "codexCli.versionGuard",
+    schema: "codex-cli-guard.v1",
+    properties: {
+      outcome,
+      binary,
+      reportedVersion: version ?? "unknown",
+      minimumRequired: MIN_CODEX_CLI_VERSION,
+    },
+  });
+}
+
 interface RunCodexCliOptions {
   readonly onEvent?: (line: string) => void;
   readonly execution?: CodexExecutionOptions;
@@ -515,6 +704,16 @@ async function runCodexCli<T>(
     },
     async (progress) => {
       progress.report({ message: "Contacting Codex CLI…" });
+      try {
+        await ensureCodexCliSupportsStdin(binary);
+      } catch (error) {
+        const message =
+          (error as Error)?.message ??
+          "Codex CLI compatibility check failed.";
+        log(`[Codex] ${message}`);
+        progress.report({ message });
+        throw error;
+      }
 
       return new Promise<T>((resolve, reject) => {
         let stdoutBuffer = "";
@@ -899,9 +1098,26 @@ function resolveCodexBinary(configured: string | null): string {
   return DEFAULT_CLI_BINARY;
 }
 
-function logCliGuidance(kind: "missing-binary" | "auth"): void {
+function logCliGuidance(
+  kind: "missing-binary" | "auth" | "upgrade",
+  details?: { binary?: string; version?: string; minimumVersion?: string },
+): void {
   const installDocs = "https://docs.cursor.com/codex-cli/install";
   const authDocs = "https://docs.cursor.com/codex-cli/auth";
+
+  if (kind === "upgrade") {
+    const binaryLabel = details?.binary ?? "Codex CLI";
+    const versionLabel = details?.version
+      ? ` (reported ${details.version})`
+      : "";
+    const requirementLabel = details?.minimumVersion
+      ? `; requires ${details.minimumVersion}+`
+      : "";
+    log(
+      `[Codex ⚠️] ${binaryLabel}${versionLabel}${requirementLabel} is out of date. Upgrade the Codex CLI: ${installDocs}`,
+    );
+    return;
+  }
 
   if (kind === "missing-binary") {
     log(
@@ -927,6 +1143,10 @@ export const __codexTestUtils = {
   resolveCodexBinaryForTest: resolveCodexBinary,
   looksLikeAuthErrorForTest: looksLikeAuthError,
   looksLikeMissingBinaryForTest: looksLikeMissingBinary,
+  minCodexCliVersionForTest: MIN_CODEX_CLI_VERSION,
+  resetCodexCompatibilityForTest(): void {
+    codexCompatibilityChecks.clear();
+  },
 };
 
 function findCodexBinaryOnPath(

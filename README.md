@@ -24,6 +24,6 @@ To iterate on the extension, launch the VS Code Extension Development Host (`F5`
 
 CommitSmith now talks to the Codex CLI exclusively. Before using AI-powered flows:
 
-1. [Install the Codex CLI](https://docs.cursor.com/codex-cli/install) and ensure the `codex` binary is on your `PATH` (or set the `commitSmith.codex.binaryPath` setting to an absolute path).
+1. [Install the Codex CLI](https://docs.cursor.com/codex-cli/install), make sure it reports version `0.6.0` or newer (`codex --version`), and ensure the `codex` binary is on your `PATH` (or set the `commitSmith.codex.binaryPath` setting to an absolute path).
 2. Authenticate with `codex login`.
 3. (Optional) configure VS Code settings such as `commitSmith.codex.extraArgs` for additional CLI flags (profiles, sandboxes, etc.).

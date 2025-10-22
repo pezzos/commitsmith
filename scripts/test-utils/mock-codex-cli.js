@@ -10,6 +10,8 @@ export function createCodexCliMock() {
   const handlers = [];
   const spawnInvocations = [];
   const requests = [];
+  const versionResponses = new Map();
+  let defaultVersionResponse = "codex 1.0.0";
   let installed = false;
   let originalLoad;
   let resolver;
@@ -60,6 +62,9 @@ export function createCodexCliMock() {
     const stdout = new PassThrough();
     const stderr = new PassThrough();
     const stdin = new PassThrough();
+    const normalizedArgs = Array.isArray(args) ? [...args] : [];
+    const isVersionRequest =
+      normalizedArgs.length === 1 && normalizedArgs[0] === "--version";
 
     const child = new EventEmitter();
     child.stdout = stdout;
@@ -72,8 +77,52 @@ export function createCodexCliMock() {
 
     spawnInvocations.push({
       command,
-      args: Array.isArray(args) ? [...args] : [],
+      args: normalizedArgs,
     });
+
+    if (isVersionRequest) {
+      const simulation =
+        versionResponses.get(command) ??
+        versionResponses.get("*") ??
+        defaultVersionResponse;
+      setImmediate(() => {
+        if (simulation instanceof Error) {
+          stderr.end();
+          stdout.end();
+          child.emit("error", simulation);
+          return;
+        }
+
+        const {
+          stdoutText = typeof simulation === "string"
+            ? simulation
+            : simulation?.stdout ?? "",
+          stderrText = typeof simulation === "object" && simulation
+            ? simulation.stderr ?? ""
+            : "",
+          exitCode = typeof simulation === "object" && simulation
+            ? simulation.exitCode ?? 0
+            : 0,
+        } = typeof simulation === "object" && !(simulation instanceof Error)
+          ? simulation
+          : {};
+
+        if (stdoutText && !stdout.writableEnded) {
+          stdout.write(`${stdoutText}\n`);
+        }
+        if (!stdout.writableEnded) {
+          stdout.end();
+        }
+        if (stderrText && !stderr.writableEnded) {
+          stderr.write(stderrText);
+        }
+        if (!stderr.writableEnded) {
+          stderr.end();
+        }
+        child.emit("close", exitCode);
+      });
+      return child;
+    }
 
     let requestBuffer = "";
     stdin.setEncoding("utf8");
@@ -81,6 +130,9 @@ export function createCodexCliMock() {
       requestBuffer += chunk;
     });
     stdin.on("end", () => {
+      if (isVersionRequest) {
+        return;
+      }
       const payload =
         requestBuffer.trim().length > 0
           ? JSON.parse(requestBuffer)
@@ -161,6 +213,18 @@ export function createCodexCliMock() {
     });
   }
 
+  function setVersionResponse(response, command = "*") {
+    if (response === null) {
+      versionResponses.delete(command);
+      return;
+    }
+    versionResponses.set(command, response);
+  }
+
+  function setDefaultVersionResponse(response) {
+    defaultVersionResponse = response;
+  }
+
   return {
     install,
     uninstall,
@@ -170,5 +234,7 @@ export function createCodexCliMock() {
     queueMissingBinary,
     spawnInvocations,
     requests,
+    setVersionResponse,
+    setDefaultVersionResponse,
   };
 }
