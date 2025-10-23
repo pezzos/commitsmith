@@ -179,6 +179,8 @@ async function main(): Promise<void> {
       path.resolve(__dirname, "../dist/telemetry.js")
     );
     const telemetryEvents: any[] = [];
+    const telemetryByName = (name: string) =>
+      telemetryEvents.filter((event) => event?.name === name);
     telemetrySubscription = telemetryModule.onTelemetryEvent(
       (event: unknown) => telemetryEvents.push(event),
     );
@@ -248,6 +250,42 @@ async function main(): Promise<void> {
     assert.equal(recordedArtifacts[1].context.step, "tests");
     assertSingleLog("[Codex] exec fix", fixLogStart);
     assertSingleLog("fixing src/app.ts", fixLogStart);
+    assert(
+      telemetryByName("codexCli.adoption").some(
+        (event: any) =>
+          event?.properties?.entrypoint === "commit" &&
+          event?.properties?.strategy === "stdin",
+      ),
+      "Expected commit adoption telemetry",
+    );
+    assert(
+      telemetryByName("codexCli.stdinWrite").some(
+        (event: any) =>
+          event?.properties?.operation === "commit" &&
+          typeof event?.measurements?.writeMs === "number",
+      ),
+      "Expected commit stdin telemetry",
+    );
+    assert(
+      telemetryByName("codexCli.adoption").some(
+        (event: any) =>
+          event?.properties?.entrypoint === "fix" &&
+          event?.properties?.strategy === "stdin",
+      ),
+      "Expected fix adoption telemetry",
+    );
+    assert(
+      telemetryByName("codexCli.stdinWrite").some(
+        (event: any) =>
+          event?.properties?.operation === "fix" &&
+          typeof event?.measurements?.writeMs === "number",
+      ),
+      "Expected fix stdin telemetry",
+    );
+    assert(
+      logEntries.some((entry) => entry.includes("prompt write completed")),
+      "Expected prompt write timing log",
+    );
 
     cliMock.queueHandler((io: any, request: CodexCliRequest) => {
       const context = request.payload?.context ?? {};

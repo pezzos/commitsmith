@@ -615,6 +615,7 @@ Reading prompt from stdin...
 - Minimum supported Codex CLI release: `0.6.0` (first build with stdin streaming). `runCodexCli` now probes `codex --version` on the first invocation per binary path, caches the capability result for the VS Code session, and refuses to launch incompatible binaries.
 - Guard failures emit `[Codex ⚠️] … upgrade` guidance, throw an actionable “Upgrade Codex CLI” error, and surface `codex-cli-guard.v1` telemetry (`outcome`, `binary`, `reportedVersion`, `minimumRequired`) so dashboards can alert on outdated workstations.
 - Timeouts or unexpected probe output are treated as guard activations, prompting the same upgrade guidance and telemetry while preventing legacy binaries from consuming CommitSmith prompts.
+- Stdin adoption is now the default path: every commit/fix invocation keeps the existing `--json --sandbox --model --profile` wiring, streams the JSON payload over `stdin`, logs write/back-pressure timing, and emits `codex-cli-adoption.v1` (`strategy=stdin`) plus `codex-cli-stdin-write.v1` metrics so dashboards can confirm rollout progress.
 
 ## Attachments / References
 - `src/codexCli/prompts.ts` – commit prompt text with latest instructions.

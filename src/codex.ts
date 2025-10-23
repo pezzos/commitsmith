@@ -6,6 +6,8 @@ import {
 } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { performance } from "node:perf_hooks";
+import { Writable } from "node:stream";
 import * as vscode from "vscode";
 import { getConfig } from "./config";
 import { getOutputChannel } from "./output";
@@ -61,6 +63,7 @@ export interface CodexOfflineFallbackEvent {
 }
 
 type CodexOperation = "commit" | "fix";
+type CodexAdoptionEntrypoint = "commit" | "fix" | "diagnostics";
 
 type CodexCliEvent<T> =
   | { type: "result"; payload: T }
@@ -100,6 +103,7 @@ export async function generateCommitMessage(
 ): Promise<string> {
   const invocation = buildCommitPrompt(journal);
   logPromptPreview("Commit", invocation.prompt, options?.log);
+  recordCodexAdoptionTelemetry("commit");
   const rawEvents: string[] = [];
   const response = await runCodexCli<unknown>(
     invocation.operation,
@@ -158,6 +162,7 @@ export async function generateFix(
 ): Promise<AIPatch> {
   const invocation = buildFixPrompt(context);
   logPromptPreview("Fix", invocation.prompt, options?.log);
+  recordCodexAdoptionTelemetry("fix");
   const rawEvents: string[] = [];
   const response = await runCodexCli<unknown>(
     invocation.operation,
@@ -457,6 +462,93 @@ function log(message: string): void {
   getOutputChannel().appendLine(message);
 }
 
+interface PromptWriteMetrics {
+  readonly writeDurationMs: number;
+  readonly waitForDrainMs: number;
+}
+
+function writePromptToStdin(
+  stdin: Writable,
+  payload: string,
+): Promise<PromptWriteMetrics> {
+  return new Promise((resolve, reject) => {
+    stdin.setDefaultEncoding("utf8");
+    const writeStart = performance.now();
+    let drainStart: number | undefined;
+    let waitForDrainMs = 0;
+
+    const handleDrain = () => {
+      if (typeof drainStart === "number") {
+        waitForDrainMs = performance.now() - drainStart;
+      }
+    };
+
+    const handleWriteError = (error: Error) => {
+      stdin.off("drain", handleDrain);
+      reject(error);
+    };
+
+    const finalizeWrite = () => {
+      stdin.off("error", handleWriteError);
+      stdin.off("drain", handleDrain);
+      const writeDurationMs = performance.now() - writeStart;
+      const handleEndError = (error: Error) => {
+        stdin.off("error", handleEndError);
+        reject(error);
+      };
+      stdin.once("error", handleEndError);
+      stdin.end(() => {
+        stdin.off("error", handleEndError);
+        resolve({
+          writeDurationMs,
+          waitForDrainMs,
+        });
+      });
+    };
+
+    const attemptWrite = () => {
+      try {
+        const wroteImmediately = stdin.write(payload, "utf8", finalizeWrite);
+        if (!wroteImmediately) {
+          drainStart = performance.now();
+          stdin.once("drain", handleDrain);
+        }
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+
+    stdin.once("error", handleWriteError);
+    attemptWrite();
+  });
+}
+
+function recordPromptWriteTelemetry(
+  operation: CodexOperation,
+  metrics: PromptWriteMetrics,
+): void {
+  recordTelemetry({
+    name: "codexCli.stdinWrite",
+    schema: "codex-cli-stdin-write.v1",
+    properties: {
+      operation,
+    },
+    measurements: {
+      writeMs: Number(metrics.writeDurationMs.toFixed(3)),
+      waitForDrainMs: Number(metrics.waitForDrainMs.toFixed(3)),
+    },
+  });
+}
+
+function formatPromptWriteLog(metrics: PromptWriteMetrics): string {
+  const { writeDurationMs, waitForDrainMs } = metrics;
+  const base = `prompt write completed in ${writeDurationMs.toFixed(1)}ms`;
+  if (waitForDrainMs > 0) {
+    return `${base} (waited ${waitForDrainMs.toFixed(1)}ms for drain)`;
+  }
+  return base;
+}
+
 async function ensureCodexCliSupportsStdin(binary: string): Promise<void> {
   let check = codexCompatibilityChecks.get(binary);
   if (!check) {
@@ -624,6 +716,19 @@ function recordVersionGuardTelemetry(
       binary,
       reportedVersion: version ?? "unknown",
       minimumRequired: MIN_CODEX_CLI_VERSION,
+    },
+  });
+}
+
+function recordCodexAdoptionTelemetry(
+  entrypoint: CodexAdoptionEntrypoint,
+): void {
+  recordTelemetry({
+    name: "codexCli.adoption",
+    schema: "codex-cli-adoption.v1",
+    properties: {
+      entrypoint,
+      strategy: "stdin",
     },
   });
 }
@@ -820,11 +925,42 @@ async function runCodexCli<T>(
           });
         }
 
+        const payloadJson = JSON.stringify(request);
         const stdin = child.stdin;
         if (stdin) {
-          stdin.setDefaultEncoding("utf8");
-          stdin.write(JSON.stringify(request));
-          stdin.end();
+          writePromptToStdin(stdin, payloadJson)
+            .then((metrics) => {
+              log(`[Codex] ${formatPromptWriteLog(metrics)}.`);
+              recordPromptWriteTelemetry(operation, metrics);
+            })
+            .catch((error) => {
+              if (settled) {
+                return;
+              }
+              cliError =
+                error instanceof Error
+                  ? error
+                  : new Error(String(error));
+              log(`[Codex] Failed to write prompt: ${cliError.message}`);
+              progress.report({ message: cliError.message });
+              try {
+                child.kill();
+              } catch {
+                // ignore – process may already be terminating
+              }
+            });
+        } else {
+          const error = new Error(
+            "Codex CLI stdin is not available; cannot send prompt.",
+          );
+          cliError = error;
+          log(`[Codex] ${error.message}`);
+          progress.report({ message: error.message });
+          try {
+            child.kill();
+          } catch {
+            // ignore
+          }
         }
 
         child.on("close", (code) => {
