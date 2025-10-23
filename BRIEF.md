@@ -124,6 +124,7 @@ All options exposed via VS Code settings:
 | `commitSmith.typecheck.command`         | Typecheck command                      | `npm run typecheck`     |
 | `commitSmith.tests.command`             | Test command                           | `npm test -- -w`        |
 | `commitSmith.pipeline.enable`           | Enable pre-commit pipeline             | `true`                  |
+| `commitSmith.pipeline.requireChecks`    | Run formatter/typecheck/test by default | `false`                 |
 | `commitSmith.pipeline.maxAiFixAttempts` | Retry limit for AI fix                 | `2`                     |
 | `commitSmith.commit.pushAfter`          | Auto-push after commit                 | `false`                 |
 | `commitSmith.message.style`             | Commit style (`conventional`, `plain`) | `conventional`          |
@@ -131,6 +132,7 @@ All options exposed via VS Code settings:
 | `commitSmith.jira.fromBranch`           | Extract ticket from branch             | `true`                  |
 | `commitSmith.codex.model`               | Codex model used                       | `gpt-5-codex`           |
 | `commitSmith.codex.extraArgs`           | Additional Codex CLI flags             | *(empty)*               |
+| `commitSmith.codex.cliInvocationVersion` | Codex invocation mode (`legacy`/`shadow`/`new`) | `shadow`               |
 | `commitSmith.pipeline.abortOnFailure`   | Stop pipeline when a step fails        | `true`                  |
 
 **Codex CLI prerequisites:** install the Codex CLI (`npm install -g codex` or download from [docs.cursor.com/codex-cli/install](https://docs.cursor.com/codex-cli/install)), ensure it’s on `PATH` (or configure `commitSmith.codex.binaryPath`), and authenticate with `codex login`. Optional flags (profiles, sandboxes) can be set via `commitSmith.codex.extraArgs`.
@@ -146,6 +148,7 @@ All options exposed via VS Code settings:
 * **Scope detection** → fallback to workspace folder name if none in branch.
 * Dry run simulates the full pipeline without altering the repo: uses `--check` formats where possible, captures Codex patches to `.commit-smith/patches/<timestamp>/<file>.patch`, and writes `summary.json` + `COMMIT_MESSAGE.md` artefacts.
 * `.commit-smith-ignore` patterns override `.gitignore`, followed by internal defaults, to keep unwanted paths out of checks, fixes, journaling, and dry-run artefacts.
+* **Status bar controls** → toggle fast/guarded lanes and monitor formatter/typecheck/test status with quick rerun commands.
 
 ---
 

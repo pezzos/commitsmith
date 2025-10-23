@@ -34,7 +34,9 @@ const outputLines = [];
 const configurationStore = new Map([
   ["format.command", "npm run format:fix"],
   ["typecheck.command", "node -e \"console.log('typecheck ok')\""],
-  ["tests.command", "node -e \"console.log('tests ok')\""],
+  ["tests.command", "git commit --dry-run --allow-empty --message \"Test Dry Run\""],
+  ["codex.extraArgs", "--prompt-file tmp/prompt.json --dry-run --profile prod"],
+  ["codex.cliInvocationVersion", "new"],
 ]);
 
 class EventEmitter {
@@ -177,7 +179,24 @@ try {
     path.dirname(url.fileURLToPath(import.meta.url)),
     "../dist/workflows/dryRun.js",
   );
+  const configModulePath = path.resolve(
+    path.dirname(url.fileURLToPath(import.meta.url)),
+    "../dist/config.js",
+  );
   const { performDryRun } = await import(modulePath);
+  const { getConfig } = await import(configModulePath);
+
+  const config = getConfig();
+  assert.deepEqual(
+    config.codexExtraArgs,
+    ["--profile", "prod"],
+    "Deprecated Codex CLI flags should be stripped from extraArgs",
+  );
+  assert.equal(
+    config.codexInvocationVersion,
+    "new",
+    "Shadow rollout gate should default to new in this test",
+  );
 
   assert.equal(
     typeof performDryRun,
@@ -267,6 +286,15 @@ try {
           "Cannot derive non-mutating variant for",
         )),
     "Skip reason should be logged",
+  );
+
+  const gitSkipLog = outputLines.find((line) =>
+    line.includes("[TESTS ⏭️]"),
+  );
+  assert.ok(
+    gitSkipLog &&
+      gitSkipLog.includes("Skipping git command"),
+    "Dry run should skip potentially mutating git commands",
   );
 
   const dryRunLog = logLines.find((line) =>

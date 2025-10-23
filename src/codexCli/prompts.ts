@@ -16,6 +16,7 @@ export interface CodexExecutionOptions {
   readonly workingDirectory?: string;
   readonly skipGitRepoCheck?: boolean;
   readonly log?: (message: string) => void;
+  readonly invocationPath?: "legacy" | "new" | "shadow";
 }
 
 export interface CodexPromptInvocation<T> {

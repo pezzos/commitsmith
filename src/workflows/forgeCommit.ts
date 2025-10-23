@@ -1,5 +1,6 @@
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import path from "node:path";
 import * as vscode from "vscode";
 
@@ -17,9 +18,14 @@ import {
   PipelineDecisionEvent,
   PipelineDecision,
   PipelineStepId,
+  PipelineLane,
 } from "../pipeline";
 import { commit, push } from "../utils/git";
-import { generateCommitMessage } from "../codex";
+import {
+  generateCommitMessage,
+  CodexInvocationError,
+} from "../codex";
+import { recordTelemetry } from "../telemetry";
 import { GitRepository } from "../types/git";
 
 export interface ForgeCommitOptions {
@@ -29,6 +35,7 @@ export interface ForgeCommitOptions {
   readonly promptDecision: (
     event: PipelineDecisionEvent,
   ) => Promise<PipelineDecision>;
+  readonly pipelineLane?: PipelineLane;
 }
 
 export type ForgeCommitResult =
@@ -53,13 +60,42 @@ export async function forgeCommitFromJournal(
     workingDirectory: repoRoot,
     log: options.log,
   };
+  const lane: PipelineLane =
+    options.pipelineLane ??
+    (config.pipelineRequireChecks ? "guarded" : "fast");
+  const preCodexStart = performance.now();
+  const telemetry: CommitFlowTelemetry = {
+    lane,
+    journalEntries: 0,
+    pipelineStatus: "not-started",
+    commitStatus: "unknown",
+    preCodexMs: 0,
+    codexMs: undefined,
+    artifactMs: undefined,
+    artifactRecorded: false,
+    codexOutcome: "not-invoked",
+    fallbackReason: undefined,
+    invocationId: undefined,
+    invocationPath: undefined,
+    pushFailed: false,
+    journalConfirmed: false,
+    failedStep: undefined,
+  };
+  const finalizeResult = (result: ForgeCommitResult): ForgeCommitResult => {
+    recordCommitFlowTelemetry(telemetry);
+    return result;
+  };
 
   try {
     await initializeJournal({ root: journalRoot });
     const journal = await readJournal({ root: journalRoot });
+    telemetry.journalEntries = journal.current?.length ?? 0;
 
     if (!journal.current || journal.current.length === 0) {
-      return { status: "empty" };
+      telemetry.pipelineStatus = "skipped";
+      telemetry.commitStatus = "empty";
+      telemetry.preCodexMs = performance.now() - preCodexStart;
+      return finalizeResult({ status: "empty" });
     }
 
     const pipelineHooks = createPipelineHooks(options);
@@ -67,18 +103,22 @@ export async function forgeCommitFromJournal(
       repo: options.repo,
       hooks: pipelineHooks,
       codexOptions,
+      lane,
     });
+    telemetry.pipelineStatus = outcome.status;
+    telemetry.preCodexMs = performance.now() - preCodexStart;
 
     if (outcome.status === "aborted") {
-      return {
+      telemetry.commitStatus = "pipeline-aborted";
+      telemetry.failedStep = outcome.failedStep;
+      return finalizeResult({
         status: "pipeline-aborted",
         failedStep: outcome.failedStep,
-      };
+      });
     }
 
     let commitMessage: string;
     let usedOfflineFallback = false;
-
     try {
       const stagedFiles = await listStagedFiles(repoRoot);
       const journalForPrompt: JournalData = {
@@ -88,12 +128,31 @@ export async function forgeCommitFromJournal(
           stagedFiles,
         },
       };
-      commitMessage = await generateCommitMessage(
+      const commitResult = await generateCommitMessage(
         journalForPrompt,
         codexOptions,
       );
+      commitMessage = commitResult.message;
+      telemetry.codexOutcome = commitResult.invocation.outcome;
+      telemetry.codexMs = commitResult.invocation.durationMs;
+      telemetry.artifactMs = commitResult.artifactDurationMs;
+      telemetry.artifactRecorded = commitResult.artifactRecorded;
+      telemetry.invocationId = commitResult.invocation.id;
+      telemetry.invocationPath = commitResult.invocation.path;
+      telemetry.fallbackReason =
+        commitResult.invocation.fallbackReason ?? undefined;
     } catch (error) {
       usedOfflineFallback = true;
+      if (error instanceof CodexInvocationError) {
+        telemetry.codexOutcome = error.metrics.outcome;
+        telemetry.codexMs = error.metrics.durationMs;
+        telemetry.invocationId = error.metrics.id;
+        telemetry.invocationPath = error.metrics.path;
+        telemetry.fallbackReason = error.metrics.fallbackReason ?? "unknown";
+      } else {
+        telemetry.codexOutcome = "error";
+        telemetry.fallbackReason = "unknown";
+      }
       const stagedFiles = await listStagedFiles(repoRoot);
       commitMessage = buildOfflineCommitMessage(stagedFiles);
       options.log(
@@ -113,6 +172,10 @@ export async function forgeCommitFromJournal(
 
     await commit(options.repo, finalMessage);
     options.log("[COMMIT ✅] Created git commit.");
+    telemetry.commitStatus =
+      outcome.status === "commit-anyway"
+        ? "commit-warning"
+        : "commit-success";
 
     let pushFailed = false;
     if (config.commitPushAfter && !outcome.suppressAutoPush) {
@@ -128,9 +191,11 @@ export async function forgeCommitFromJournal(
         "[PUSH ⏭️] Skipped auto-push due to pipeline decision.",
       );
     }
+    telemetry.pushFailed = pushFailed;
 
     await clearCurrent({ root: journalRoot });
     options.log("[JOURNAL 🗑️] Cleared current entries.");
+    telemetry.journalConfirmed = true;
 
     if (usedOfflineFallback) {
       options.log(
@@ -139,17 +204,82 @@ export async function forgeCommitFromJournal(
     }
 
     if (outcome.status === "commit-anyway") {
-      return {
+      return finalizeResult({
         status: "commit-warning",
         pushFailed,
         commitAnnotation: outcome.commitAnnotation ?? "",
-      };
+      });
     }
 
-    return { status: "commit-success", pushFailed };
+    return finalizeResult({ status: "commit-success", pushFailed });
   } catch (error) {
-    return { status: "error", message: (error as Error).message };
+    telemetry.commitStatus = "error";
+    return finalizeResult({
+      status: "error",
+      message: (error as Error).message,
+    });
   }
+}
+
+const COMMIT_FLOW_SCHEMA_VERSION = 1;
+
+interface CommitFlowTelemetry {
+  readonly lane: PipelineLane;
+  journalEntries: number;
+  pipelineStatus: string;
+  commitStatus: string;
+  preCodexMs: number;
+  codexMs?: number;
+  artifactMs?: number;
+  artifactRecorded: boolean;
+  codexOutcome: string;
+  fallbackReason?: string;
+  invocationId?: string;
+  invocationPath?: string;
+  pushFailed: boolean;
+  journalConfirmed: boolean;
+  failedStep?: PipelineStepId;
+}
+
+function recordCommitFlowTelemetry(telemetry: CommitFlowTelemetry): void {
+  const properties: Record<string, string> = {
+    lane: telemetry.lane,
+    pipelineStatus: telemetry.pipelineStatus,
+    commitStatus: telemetry.commitStatus,
+    codexOutcome: telemetry.codexOutcome,
+    fastLane: telemetry.lane === "fast" ? "true" : "false",
+    journalConfirmed: telemetry.journalConfirmed ? "true" : "false",
+    artifactRecorded: telemetry.artifactRecorded ? "true" : "false",
+    pushFailed: telemetry.pushFailed ? "true" : "false",
+    journalEntries: telemetry.journalEntries.toString(),
+  };
+
+  properties.fallbackReason = telemetry.fallbackReason ?? "none";
+  properties.invocationId = telemetry.invocationId ?? "none";
+  properties.invocationPath = telemetry.invocationPath ?? "unknown";
+  if (telemetry.failedStep) {
+    properties.failedStep = telemetry.failedStep;
+  }
+
+  const measurements: Record<string, number> = {
+    preCodexMs: Number(telemetry.preCodexMs.toFixed(3)),
+  };
+
+  if (typeof telemetry.codexMs === "number") {
+    measurements.codexMs = Number(telemetry.codexMs.toFixed(3));
+  }
+
+  if (typeof telemetry.artifactMs === "number") {
+    measurements.artifactMs = Number(telemetry.artifactMs.toFixed(3));
+  }
+
+  recordTelemetry({
+    name: "workflow.commitFlow",
+    schema: "workflow.commitFlow",
+    schemaVersion: COMMIT_FLOW_SCHEMA_VERSION,
+    properties,
+    measurements,
+  });
 }
 
 function createPipelineHooks(

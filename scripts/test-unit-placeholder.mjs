@@ -18,12 +18,22 @@ const initializerModule = await import(
 );
 const journalModule = await import(path.join(distPath, "journal.js"));
 const agentsModule = await import(path.join(distPath, "agents.js"));
+const preferencesModule = await import(
+  path.join(distPath, "preferences.js"),
+);
+const telemetryModule = await import(path.join(distPath, "telemetry.js"));
 
 const { getInitializationStatus, initializeRepository } =
   initializerModule;
 const { initializeJournal, updateJournalMeta, readJournal } =
   journalModule;
 const { ensureJournalWorkflowSection } = agentsModule;
+const {
+  hasAcknowledgedFastLaneReminder,
+  recordFastLaneReminderAcknowledged,
+  resetFastLaneReminder,
+} = preferencesModule;
+const { onTelemetryEvent, recordTelemetry } = telemetryModule;
 
 console.info("Running initialization unit tests...");
 
@@ -253,5 +263,74 @@ assert.equal(
   bootstrapCommand.title,
   "CommitSmith: Run Codex Onboarding",
 );
+
+class MemoryPreferenceStore {
+  constructor(backing) {
+    this.backing = backing;
+  }
+
+  get(key, defaultValue) {
+    if (this.backing.has(key)) {
+      return this.backing.get(key);
+    }
+    return defaultValue;
+  }
+
+  async update(key, value) {
+    if (value === undefined) {
+      this.backing.delete(key);
+    } else {
+      this.backing.set(key, value);
+    }
+  }
+}
+
+const preferenceBacking = new Map();
+const primaryStore = new MemoryPreferenceStore(preferenceBacking);
+assert.equal(
+  hasAcknowledgedFastLaneReminder(primaryStore),
+  false,
+  "Fast lane reminder should be unset for new users.",
+);
+await recordFastLaneReminderAcknowledged(primaryStore);
+const reloadStore = new MemoryPreferenceStore(preferenceBacking);
+assert.equal(
+  hasAcknowledgedFastLaneReminder(reloadStore),
+  true,
+  "Acknowledgement should persist across reloads.",
+);
+await resetFastLaneReminder(reloadStore);
+const resetStore = new MemoryPreferenceStore(preferenceBacking);
+assert.equal(
+  hasAcknowledgedFastLaneReminder(resetStore),
+  false,
+  "Reset should clear acknowledgement for future sessions.",
+);
+await recordFastLaneReminderAcknowledged(resetStore);
+const restartStore = new MemoryPreferenceStore(preferenceBacking);
+assert.equal(
+  hasAcknowledgedFastLaneReminder(restartStore),
+  true,
+  "Acknowledgement should persist across host restarts.",
+);
+console.info("Fast lane reminder preference tests passed");
+
+const telemetryEvents = [];
+const telemetryDisposable = onTelemetryEvent((event) => {
+  telemetryEvents.push(event);
+});
+recordTelemetry({
+  name: "test.event",
+  schema: "unit.telemetry",
+  schemaVersion: 1,
+  properties: { sample: "true" },
+});
+if (telemetryDisposable && typeof telemetryDisposable.dispose === "function") {
+  telemetryDisposable.dispose();
+}
+assert.equal(telemetryEvents.length, 1);
+assert.equal(telemetryEvents[0].schemaVersion, 1);
+assert.equal(telemetryEvents[0].schema, "unit.telemetry");
+console.info("Telemetry event tests passed");
 
 console.info("Initialization unit tests passed");

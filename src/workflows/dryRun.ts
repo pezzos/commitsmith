@@ -118,13 +118,13 @@ export async function performDryRun(
       codexOptions,
     });
 
-    const commitMessage = await generateCommitMessage(
+    const commitResult = await generateCommitMessage(
       journal,
       codexOptions,
     );
     await fs.writeFile(
       path.join(artifactDir, "COMMIT_MESSAGE.md"),
-      `${commitMessage}\n`,
+      `${commitResult.message}\n`,
       "utf8",
     );
 

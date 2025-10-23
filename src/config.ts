@@ -19,6 +19,7 @@ export interface CommitSmithConfig {
   readonly testsCommand: string;
   readonly testsEnabled: boolean;
   readonly pipelineEnable: boolean;
+  readonly pipelineRequireChecks: boolean;
   readonly pipelineMaxAiFixAttempts: number;
   readonly pipelineAbortOnFailure: boolean;
   readonly commitPushAfter: boolean;
@@ -33,6 +34,7 @@ export interface CommitSmithConfig {
   readonly codexTimeoutMs: number;
   readonly codexSerenaTimeoutMs: number;
   readonly codexMcpWhitelist: readonly string[];
+  readonly codexInvocationVersion: InvocationVersion;
 }
 
 const DEFAULTS: CommitSmithConfig = {
@@ -43,6 +45,7 @@ const DEFAULTS: CommitSmithConfig = {
   testsCommand: "npm test -- -w",
   testsEnabled: true,
   pipelineEnable: true,
+  pipelineRequireChecks: false,
   pipelineMaxAiFixAttempts: 2,
   pipelineAbortOnFailure: true,
   commitPushAfter: false,
@@ -57,6 +60,7 @@ const DEFAULTS: CommitSmithConfig = {
   codexTimeoutMs: 120_000,
   codexSerenaTimeoutMs: 180_000,
   codexMcpWhitelist: [],
+  codexInvocationVersion: "shadow",
 };
 
 const configChangeEmitter =
@@ -108,6 +112,10 @@ export function getConfig(): CommitSmithConfig {
     pipelineEnable: settings.get<boolean>(
       "pipeline.enable",
       DEFAULTS.pipelineEnable,
+    ),
+    pipelineRequireChecks: settings.get<boolean>(
+      "pipeline.requireChecks",
+      DEFAULTS.pipelineRequireChecks,
     ),
     pipelineMaxAiFixAttempts: clampMinimum(
       settings.get<number>(
@@ -178,6 +186,10 @@ export function getConfig(): CommitSmithConfig {
       settings.get<string[]>("codex.mcpWhitelist", [
         ...DEFAULTS.codexMcpWhitelist,
       ]),
+    ),
+    codexInvocationVersion: coerceInvocationVersion(
+      settings.get<string>("codex.cliInvocationVersion"),
+      DEFAULTS.codexInvocationVersion,
     ),
   };
 }
@@ -251,10 +263,33 @@ function parseCliArgs(value: string | undefined): string[] {
     return [];
   }
 
-  return value
+  const parts = value
     .split(/\s+/)
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
+
+  const sanitized: string[] = [];
+  const bannedFlags = new Set(["--dry-run", "--prompt-file"]);
+
+  for (let index = 0; index < parts.length; index += 1) {
+    const token = parts[index];
+    const lower = token.toLowerCase();
+
+    if (lower.startsWith("--prompt-file=") || bannedFlags.has(lower)) {
+      console.warn(
+        `[CommitSmith] Removing deprecated Codex CLI flag "${token}" from commitSmith.codex.extraArgs.`,
+      );
+      if (lower === "--prompt-file" && index + 1 < parts.length) {
+        // Skip the value passed to --prompt-file <path>
+        index += 1;
+      }
+      continue;
+    }
+
+    sanitized.push(token);
+  }
+
+  return sanitized;
 }
 
 function parseStringArray(
@@ -276,4 +311,25 @@ function parseSerenaOverride(
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+const INVOCATION_VERSIONS = ["legacy", "shadow", "new"] as const;
+export type InvocationVersion = (typeof INVOCATION_VERSIONS)[number];
+
+function coerceInvocationVersion(
+  value: string | undefined,
+  fallback: InvocationVersion,
+): InvocationVersion {
+  if (!value) {
+    return fallback;
+  }
+  if ((INVOCATION_VERSIONS as readonly string[]).includes(value)) {
+    return value as InvocationVersion;
+  }
+  console.warn(
+    `commitSmith.codex.cliInvocationVersion must be one of ${INVOCATION_VERSIONS.join(
+      ", ",
+    )}. Falling back to ${fallback}.`,
+  );
+  return fallback;
 }

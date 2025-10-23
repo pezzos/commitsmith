@@ -27,6 +27,7 @@ const GIT_DIFF_BUFFER = 20 * 1024 * 1024;
 
 export type PipelineStepId = "format" | "typecheck" | "tests";
 export type PipelineMode = "execute" | "dry-run";
+export type PipelineLane = "fast" | "guarded";
 
 export interface DryRunPatchInfo {
   readonly step: PipelineStepId;
@@ -39,6 +40,8 @@ export interface PipelineOptions {
   readonly repo: GitRepository;
   readonly hooks?: PipelineHooks;
   readonly mode?: PipelineMode;
+  readonly lane?: PipelineLane;
+  readonly limitToSteps?: PipelineStepId[];
   readonly onDryRunPatch?: (
     info: DryRunPatchInfo,
   ) => Promise<void> | void;
@@ -104,15 +107,16 @@ interface RepoSnapshot {
   readonly untrackedDir?: string;
 }
 
-const STEP_SEQUENCE: PipelineStepId[] = [
-  "format",
-  "typecheck",
-  "tests",
-];
+const STEP_SEQUENCE: PipelineStepId[] = ["format", "typecheck", "tests"];
 const STEP_LABELS: Record<PipelineStepId, string> = {
   format: "FORMAT",
   typecheck: "TYPECHECK",
   tests: "TESTS",
+};
+const FAST_LANE_SKIP_REASONS: Record<PipelineStepId, string> = {
+  format: "Fast lane enabled; skipping formatter step.",
+  typecheck: "Fast lane enabled; skipping typecheck step.",
+  tests: "Fast lane enabled; skipping test step.",
 };
 type SymlinkType = "dir" | "file" | "junction";
 
@@ -123,6 +127,9 @@ export async function runPipeline(
   const hooks = options.hooks ?? {};
   const mode: PipelineMode = options.mode ?? "execute";
   const isDryRun = mode === "dry-run";
+  const lane: PipelineLane =
+    options.lane ??
+    (config.pipelineRequireChecks ? "guarded" : "fast");
 
   if (!config.pipelineEnable) {
     log(hooks, "Pipeline disabled via configuration");
@@ -134,19 +141,44 @@ export async function runPipeline(
     config,
     mode,
     repoRoot,
+    lane,
   );
+  const targetSteps =
+    options.limitToSteps && options.limitToSteps.length > 0
+      ? STEP_SEQUENCE.filter((id) =>
+          options.limitToSteps!.includes(id),
+        )
+      : STEP_SEQUENCE;
+  const filteredSteps = stepDefinitions.filter((definition) =>
+    targetSteps.includes(definition.id),
+  );
+  if (filteredSteps.length === 0) {
+    log(
+      hooks,
+      "[Pipeline] No steps selected for execution; treating as complete.",
+    );
+    return { status: "completed", suppressAutoPush: false };
+  }
   const ignoreRules = await readIgnorePatterns(repoRoot);
   const snapshot = isDryRun
     ? await captureRepoSnapshot(repoRoot)
     : undefined;
 
   try {
-    for (const step of stepDefinitions) {
+    for (const step of filteredSteps) {
       const trimmedCommand = step.command.trim();
       if (trimmedCommand.length === 0) {
         const reason =
           step.dryRunSkipReason ?? "No command configured; skipping.";
         log(hooks, `[${formatStepLabel(step.id)} ⏭️] ${reason}`);
+        hooks.onStepStart?.({ step: step.id, attempt: 0 });
+        hooks.onStepComplete?.({
+          step: step.id,
+          success: true,
+          stdout: "",
+          stderr: "",
+          attempt: 0,
+        });
         continue;
       }
       const activeStep: StepDefinition = {
@@ -302,6 +334,7 @@ async function buildStepDefinitions(
   config: ReturnType<typeof getConfig>,
   mode: PipelineMode,
   cwd: string,
+  lane: PipelineLane,
 ): Promise<StepDefinition[]> {
   const npmBinary = await resolveBinary("npm", [
     "/opt/homebrew/bin/npm",
@@ -312,6 +345,7 @@ async function buildStepDefinitions(
     "/usr/local/bin/node",
   ]);
   const envPatch = createEnvPatch([npmBinary, nodeBinary]);
+  const useFastLane = mode === "execute" && lane === "fast";
 
   const stepSettings: Record<
     PipelineStepId,
@@ -351,6 +385,14 @@ async function buildStepDefinitions(
       };
     }
 
+    if (useFastLane) {
+      return {
+        id,
+        command: "",
+        dryRunSkipReason: FAST_LANE_SKIP_REASONS[id],
+      };
+    }
+
     if (mode !== "dry-run") {
       return { id, command, envPatch };
     }
@@ -373,6 +415,14 @@ async function buildStepDefinitions(
         id,
         command: resolveStepCommandBinary(result.command, npmBinary),
         envPatch,
+      };
+    }
+
+    if (isDryRunUnsafeGitCommand(command)) {
+      return {
+        id,
+        command: "",
+        dryRunSkipReason: `Skipping git command "${command}" during dry run.`,
       };
     }
 
@@ -412,6 +462,40 @@ function translateFormatCommandForDryRun(
     skip: true,
     reason: `No non-mutating variant found for "${trimmed}".`,
   };
+}
+
+function isDryRunUnsafeGitCommand(command: string): boolean {
+  const trimmed = command.trim().toLowerCase();
+  if (!trimmed.startsWith("git ")) {
+    return false;
+  }
+
+  const mutatingSubcommands = new Set([
+    "add",
+    "apply",
+    "branch",
+    "checkout",
+    "cherry-pick",
+    "clean",
+    "commit",
+    "merge",
+    "mv",
+    "pull",
+    "push",
+    "rebase",
+    "reset",
+    "restore",
+    "rm",
+    "stash",
+    "tag",
+  ]);
+
+  const tokens = trimmed.split(/\s+/);
+  if (tokens.length < 2) {
+    return false;
+  }
+
+  return mutatingSubcommands.has(tokens[1]);
 }
 
 async function executeStep(

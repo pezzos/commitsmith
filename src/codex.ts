@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   accessSync,
   constants as fsConstants,
   readFileSync,
+  promises as fsPromises,
 } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -10,6 +12,7 @@ import { performance } from "node:perf_hooks";
 import { Writable } from "node:stream";
 import * as vscode from "vscode";
 import { getConfig } from "./config";
+import type { CommitSmithConfig, InvocationVersion } from "./config";
 import { getOutputChannel } from "./output";
 import { JournalData } from "./journal";
 import type { CodexExecutionOptions } from "./codexCli/prompts";
@@ -82,6 +85,51 @@ const offlineFallbackEmitter =
   new vscode.EventEmitter<CodexOfflineFallbackEvent>();
 export const onCodexOfflineFallback = offlineFallbackEmitter.event;
 
+type CodexInvocationPath = "legacy" | "new" | "shadow";
+type CodexInvocationOutcome = "success" | "error" | "fallback";
+
+export interface CodexInvocationMetrics {
+  readonly id: string;
+  readonly operation: CodexOperation;
+  readonly path: CodexInvocationPath;
+  readonly durationMs: number;
+  readonly startedAt: number;
+  readonly promptBytes: number;
+  readonly outcome: CodexInvocationOutcome;
+  readonly fallbackReason?: CodexOfflineFallbackReason;
+  readonly errorMessage?: string;
+}
+
+interface CodexInvocationResult<T> {
+  readonly payload: T;
+  readonly metrics: CodexInvocationMetrics;
+}
+
+export interface CommitMessageResult {
+  readonly message: string;
+  readonly invocation: CodexInvocationMetrics;
+  readonly artifactRecorded: boolean;
+  readonly artifactDurationMs?: number;
+}
+
+export class CodexInvocationError extends Error {
+  readonly metrics: CodexInvocationMetrics;
+
+  constructor(
+    message: string,
+    metrics: CodexInvocationMetrics,
+    cause?: Error,
+  ) {
+    super(message, cause ? { cause } : undefined);
+    this.name = "CodexInvocationError";
+    this.metrics = metrics;
+  }
+}
+
+const CODEX_INVOCATION_SCHEMA_VERSION = 1;
+const CODEX_ARTIFACT_SCHEMA_VERSION = 1;
+const SHADOW_COMPARISON_SCHEMA_VERSION = 1;
+
 class CodexCliCompatibilityError extends Error {
   readonly version?: string;
 
@@ -100,12 +148,12 @@ const codexCompatibilityChecks = new Map<
 export async function generateCommitMessage(
   journal: JournalData,
   options?: CodexExecutionOptions,
-): Promise<string> {
+): Promise<CommitMessageResult> {
   const invocation = buildCommitPrompt(journal);
   logPromptPreview("Commit", invocation.prompt, options?.log);
   recordCodexAdoptionTelemetry("commit");
   const rawEvents: string[] = [];
-  const response = await runCodexCli<unknown>(
+  const { payload: response, metrics } = await runCodexCli<unknown>(
     invocation.operation,
     invocation.payload,
     {
@@ -119,8 +167,19 @@ export async function generateCommitMessage(
       invocation,
       response,
     ) as CommitResponse;
-    await recordCliArtifact(invocation, options, rawEvents, parsed);
-    return parsed.message.trim();
+    const artifactTelemetry = await recordArtifactWithMetrics(
+      invocation,
+      options,
+      rawEvents,
+      parsed,
+      metrics,
+    );
+    return {
+      message: parsed.message.trim(),
+      invocation: metrics,
+      artifactRecorded: artifactTelemetry.recorded,
+      artifactDurationMs: artifactTelemetry.durationMs,
+    };
   } catch (error) {
     const recovered = extractCommitResultFromEvents(rawEvents);
     if (recovered) {
@@ -128,23 +187,30 @@ export async function generateCommitMessage(
         "[Codex] CLI provided a commit message before failing; using recovered message.",
       );
       logCliDiagnostics(rawEvents);
-      await recordCliArtifact(
+      const artifactTelemetry = await recordArtifactWithMetrics(
         invocation,
         options,
         rawEvents,
         recovered,
+        metrics,
         error instanceof CodexPromptValidationError
           ? error
           : undefined,
       );
-      return recovered.message.trim();
+      return {
+        message: recovered.message.trim(),
+        invocation: metrics,
+        artifactRecorded: artifactTelemetry.recorded,
+        artifactDurationMs: artifactTelemetry.durationMs,
+      };
     }
     if (error instanceof CodexPromptValidationError) {
-      await recordCliArtifact(
+      await recordArtifactWithMetrics(
         invocation,
         options,
         rawEvents,
         undefined,
+        metrics,
         error,
       );
       emitValidationFallback(error);
@@ -152,6 +218,13 @@ export async function generateCommitMessage(
       throw error;
     }
     logCliDiagnostics(rawEvents);
+    recordCodexArtifactTelemetry({
+      invocationId: metrics.id,
+      kind: invocation.kind,
+      durationMs: 0,
+      path: metrics.path,
+      recorded: false,
+    });
     throw error;
   }
 }
@@ -164,7 +237,7 @@ export async function generateFix(
   logPromptPreview("Fix", invocation.prompt, options?.log);
   recordCodexAdoptionTelemetry("fix");
   const rawEvents: string[] = [];
-  const response = await runCodexCli<unknown>(
+  const { payload: response, metrics } = await runCodexCli<unknown>(
     invocation.operation,
     invocation.payload,
     {
@@ -180,10 +253,16 @@ export async function generateFix(
     ) as FixResponse;
     validateUnifiedDiff(parsed.diff);
     const meta = normalizeFixMeta(parsed.meta);
-    await recordCliArtifact(invocation, options, rawEvents, {
-      diff: parsed.diff,
-      meta,
-    });
+    await recordArtifactWithMetrics(
+      invocation,
+      options,
+      rawEvents,
+      {
+        diff: parsed.diff,
+        meta,
+      },
+      metrics,
+    );
 
     return {
       kind: "unified-diff",
@@ -192,14 +271,23 @@ export async function generateFix(
     };
   } catch (error) {
     if (error instanceof CodexPromptValidationError) {
-      await recordCliArtifact(
+      await recordArtifactWithMetrics(
         invocation,
         options,
         rawEvents,
         undefined,
+        metrics,
         error,
       );
       emitValidationFallback(error);
+    } else {
+      recordCodexArtifactTelemetry({
+        invocationId: metrics.id,
+        kind: invocation.kind,
+        durationMs: 0,
+        path: metrics.path,
+        recorded: false,
+      });
     }
     throw error;
   }
@@ -529,7 +617,8 @@ function recordPromptWriteTelemetry(
 ): void {
   recordTelemetry({
     name: "codexCli.stdinWrite",
-    schema: "codex-cli-stdin-write.v1",
+    schema: "codex-cli-stdin-write",
+    schemaVersion: 1,
     properties: {
       operation,
     },
@@ -710,7 +799,8 @@ function recordVersionGuardTelemetry(
 ): void {
   recordTelemetry({
     name: "codexCli.versionGuard",
-    schema: "codex-cli-guard.v1",
+    schema: "codex-cli-guard",
+    schemaVersion: 1,
     properties: {
       outcome,
       binary,
@@ -725,7 +815,8 @@ function recordCodexAdoptionTelemetry(
 ): void {
   recordTelemetry({
     name: "codexCli.adoption",
-    schema: "codex-cli-adoption.v1",
+    schema: "codex-cli-adoption",
+    schemaVersion: 1,
     properties: {
       entrypoint,
       strategy: "stdin",
@@ -733,82 +824,276 @@ function recordCodexAdoptionTelemetry(
   });
 }
 
+function recordCodexInvocationTelemetry(
+  metrics: CodexInvocationMetrics,
+  invocationPathOverride?: CodexInvocationPath,
+): void {
+  recordTelemetry({
+    name: "workflow.codexInvocation",
+    schema: "workflow.codexInvocation",
+    schemaVersion: CODEX_INVOCATION_SCHEMA_VERSION,
+    properties: {
+      invocationId: metrics.id,
+      operation: metrics.operation,
+      path: invocationPathOverride ?? metrics.path,
+      outcome: metrics.outcome,
+      fallbackReason: metrics.fallbackReason ?? "none",
+    },
+    measurements: {
+      durationMs: Number(metrics.durationMs.toFixed(3)),
+      promptBytes: metrics.promptBytes,
+    },
+  });
+}
+
+interface CodexArtifactTelemetry {
+  readonly invocationId: string;
+  readonly kind: "commit" | "fix";
+  readonly durationMs: number;
+  readonly path: CodexInvocationPath;
+  readonly recorded: boolean;
+}
+
+function recordCodexArtifactTelemetry(
+  artifact: CodexArtifactTelemetry,
+): void {
+  recordTelemetry({
+    name: "workflow.codexArtifact",
+    schema: "workflow.codexArtifact",
+    schemaVersion: CODEX_ARTIFACT_SCHEMA_VERSION,
+    properties: {
+      invocationId: artifact.invocationId,
+      kind: artifact.kind,
+      path: artifact.path,
+      recorded: artifact.recorded ? "true" : "false",
+    },
+    measurements: {
+      durationMs: Number(artifact.durationMs.toFixed(3)),
+    },
+  });
+}
+
+interface ArtifactMetricResult {
+  readonly recorded: boolean;
+  readonly durationMs?: number;
+}
+
+async function recordArtifactWithMetrics<T>(
+  invocation: CodexPromptInvocation<T>,
+  options: CodexExecutionOptions | undefined,
+  rawEvents: string[],
+  result: T | undefined,
+  invocationMetrics: CodexInvocationMetrics,
+  error?: CodexPromptValidationError,
+): Promise<ArtifactMetricResult> {
+  const shouldRecord = Boolean(options?.recordArtifact);
+  let durationMs: number | undefined;
+  if (shouldRecord) {
+    const start = performance.now();
+    await recordCliArtifact(invocation, options, rawEvents, result, error);
+    durationMs = performance.now() - start;
+  } else {
+    await recordCliArtifact(invocation, options, rawEvents, result, error);
+  }
+
+  recordCodexArtifactTelemetry({
+    invocationId: invocationMetrics.id,
+    kind: invocation.kind,
+    durationMs: durationMs ?? 0,
+    path: invocationMetrics.path,
+    recorded: shouldRecord,
+  });
+
+  return {
+    recorded: shouldRecord,
+    durationMs,
+  };
+}
+
 interface RunCodexCliOptions {
   readonly onEvent?: (line: string) => void;
   readonly execution?: CodexExecutionOptions;
 }
 
-async function runCodexCli<T>(
+export async function runCodexCli<T>(
   operation: CodexOperation,
   payload: unknown,
   options?: RunCodexCliOptions,
-): Promise<T> {
+): Promise<CodexInvocationResult<T>> {
   const config = getConfig();
+  const baseVersion = config.codexInvocationVersion;
+  const invocationPath = resolveInvocationPath(
+    baseVersion,
+    config,
+    options?.execution,
+  );
+  const result = await runCodexCliImpl(
+    config,
+    invocationPath,
+    operation,
+    payload,
+    options ?? {},
+    true,
+  );
+
+  if (baseVersion === "shadow") {
+    const comparisonOptions: RunCodexCliOptions | undefined = options
+      ? {
+          ...options,
+          onEvent: undefined,
+          execution: options.execution
+            ? { ...options.execution, log: undefined }
+            : undefined,
+        }
+      : undefined;
+    void runLegacyShadowComparison(
+      config,
+      operation,
+      payload,
+      comparisonOptions,
+      result.metrics,
+    );
+  }
+
+  return result;
+}
+
+async function runCodexCliImpl<T>(
+  config: CommitSmithConfig,
+  invocationPath: CodexInvocationPath,
+  operation: CodexOperation,
+  payload: unknown,
+  options: RunCodexCliOptions,
+  showProgress: boolean,
+): Promise<CodexInvocationResult<T>> {
   const request: CodexCliRequest = {
     model: config.codexModel,
     operation,
     payload,
   };
-
-  const binary = resolveCodexBinary(config.codexBinaryPath);
-  const sandboxMode =
-    operation === "commit" ? "read-only" : "workspace-write";
-  const debugEvents = shouldDebugEvents();
-  const args = [
-    "exec",
-    operation,
-    "--json",
-    "--sandbox",
-    sandboxMode,
-    "--model",
-    config.codexModel,
-    ...config.codexExtraArgs,
-  ];
-
-  if (config.codexSerenaOverride) {
-    args.push(
-      "-c",
-      `mcp_servers.serena=${config.codexSerenaOverride}`,
+  const promptJson = JSON.stringify(request);
+  const promptBytes = Buffer.byteLength(promptJson, "utf8");
+  const usePromptFile = invocationPath === "legacy";
+  let promptDir: string | undefined;
+  let promptFile: string | undefined;
+  if (usePromptFile) {
+    promptDir = await fsPromises.mkdtemp(
+      path.join(os.tmpdir(), "commit-smith-legacy-"),
     );
+    promptFile = path.join(promptDir, `${operation}-prompt.json`);
+    await fsPromises.writeFile(promptFile, promptJson, "utf8");
   }
 
-  const mcpOverrides = getMcpOverrideArgs(config);
-  if (mcpOverrides.length > 0) {
-    args.push(...mcpOverrides);
-  }
+  const invocationId = randomUUID();
+  const startedAt = Date.now();
+  const invocationStart = performance.now();
+  let fallbackReason: CodexOfflineFallbackReason | undefined;
+  let telemetryFinalized = false;
+  let recordedMetrics: CodexInvocationMetrics | undefined;
+  const effectiveOptions = options ?? {};
 
-  const hasReasoningOverride = config.codexExtraArgs.some((arg) =>
-    arg.includes("reasoning.level"),
-  );
-  if (!hasReasoningOverride) {
-    args.push(
-      "-c",
-      `reasoning.level="${config.codexReasoningLevel}"`,
+  try {
+    const binary = resolveCodexBinary(config.codexBinaryPath);
+    const sandboxMode =
+      operation === "commit" ? "read-only" : "workspace-write";
+    const debugEvents = shouldDebugEvents();
+    const args = [
+      "exec",
+      operation,
+      "--json",
+      "--sandbox",
+      sandboxMode,
+      "--model",
+      config.codexModel,
+      ...config.codexExtraArgs,
+    ];
+
+    if (usePromptFile && promptFile) {
+      args.push("--prompt-file", promptFile);
+    }
+
+    if (config.codexSerenaOverride) {
+      args.push(
+        "-c",
+        `mcp_servers.serena=${config.codexSerenaOverride}`,
+      );
+    }
+
+    const mcpOverrides = getMcpOverrideArgs(config);
+    if (mcpOverrides.length > 0) {
+      args.push(...mcpOverrides);
+    }
+
+    const hasReasoningOverride = config.codexExtraArgs.some((arg) =>
+      arg.includes("reasoning.level"),
     );
-  }
+    if (!hasReasoningOverride) {
+      args.push(
+        "-c",
+        `reasoning.level="${config.codexReasoningLevel}"`,
+      );
+    }
 
-  if (options?.execution?.skipGitRepoCheck) {
-    args.push("--skip-git-repo-check");
-  }
+    if (effectiveOptions.execution?.skipGitRepoCheck) {
+      args.push("--skip-git-repo-check");
+    }
 
-  log(
-    `[Codex] exec ${operation} model=${config.codexModel} binary=${binary}`,
-  );
-  log(`[Codex] args ${JSON.stringify(args)}`);
+    log(
+      `[Codex] exec ${operation} model=${config.codexModel} binary=${binary}`,
+    );
+    log(`[Codex] args ${JSON.stringify(args)}`);
 
-  const progressTitle =
-    operation === "fix"
-      ? "CommitSmith Codex: applying automated fix"
-      : "CommitSmith Codex: generating commit message";
+    const progressTitle =
+      operation === "fix"
+        ? "CommitSmith Codex: applying automated fix"
+        : "CommitSmith Codex: generating commit message";
 
-  return vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: progressTitle,
-      cancellable: false,
-    },
-    async (progress) => {
+    const runWithProgress = async (
+      progress: vscode.Progress<{ message?: string }>,
+    ): Promise<CodexInvocationResult<T>> => {
       progress.report({ message: "Contacting Codex CLI…" });
+      const finalize = (
+        outcome: CodexInvocationOutcome,
+        error?: Error,
+      ): CodexInvocationMetrics => {
+        if (telemetryFinalized && recordedMetrics) {
+          return recordedMetrics;
+        }
+        telemetryFinalized = true;
+        const durationMs = performance.now() - invocationStart;
+        const metrics: CodexInvocationMetrics = {
+          id: invocationId,
+          operation,
+          path: invocationPath,
+          durationMs,
+          startedAt,
+          promptBytes,
+          outcome,
+          fallbackReason,
+          errorMessage: error?.message,
+        };
+        recordedMetrics = metrics;
+        recordCodexInvocationTelemetry(metrics, invocationPath);
+        return metrics;
+      };
+
+      const rejectWithTelemetry = (
+        reject: (reason?: unknown) => void,
+        error: Error,
+      ): void => {
+        const metrics = finalize(
+          fallbackReason ? "fallback" : "error",
+          error,
+        );
+        const invocationError = new CodexInvocationError(
+          error.message,
+          metrics,
+          error,
+        );
+        invocationError.stack = error.stack;
+        reject(invocationError);
+      };
+
       try {
         await ensureCodexCliSupportsStdin(binary);
       } catch (error) {
@@ -817,10 +1102,17 @@ async function runCodexCli<T>(
           "Codex CLI compatibility check failed.";
         log(`[Codex] ${message}`);
         progress.report({ message });
-        throw error;
+        const errObject =
+          error instanceof Error ? error : new Error(String(error));
+        const metrics = finalize("error", errObject);
+        throw new CodexInvocationError(
+          errObject.message,
+          metrics,
+          errObject,
+        );
       }
 
-      return new Promise<T>((resolve, reject) => {
+      return new Promise<CodexInvocationResult<T>>((resolve, reject) => {
         let stdoutBuffer = "";
         let stderrBuffer = "";
         const rawStdoutChunks: string[] = [];
@@ -833,7 +1125,7 @@ async function runCodexCli<T>(
         let loggedCliOutput = false;
 
         const emitCliLine = (line: string) => {
-          options?.onEvent?.(line);
+          effectiveOptions.onEvent?.(line);
           if (debugEvents) {
             logRawEvent(line);
           }
@@ -868,7 +1160,7 @@ async function runCodexCli<T>(
         const child = spawn(binary, args, {
           stdio: ["pipe", "pipe", "pipe"],
           env: { ...process.env },
-          cwd: options?.execution?.workingDirectory ?? process.cwd(),
+          cwd: effectiveOptions.execution?.workingDirectory ?? process.cwd(),
           windowsHide: true,
         });
 
@@ -903,7 +1195,7 @@ async function runCodexCli<T>(
           logCliFailureOutputOnce();
           emitFallbackOnce("network", enriched);
           progress.report({ message: enriched.message });
-          reject(enriched);
+          rejectWithTelemetry(reject, enriched);
         });
 
         const stdout = child.stdout;
@@ -925,10 +1217,13 @@ async function runCodexCli<T>(
           });
         }
 
-        const payloadJson = JSON.stringify(request);
         const stdin = child.stdin;
-        if (stdin) {
-          writePromptToStdin(stdin, payloadJson)
+        if (usePromptFile) {
+          if (stdin) {
+            stdin.end();
+          }
+        } else if (stdin) {
+          writePromptToStdin(stdin, promptJson)
             .then((metrics) => {
               log(`[Codex] ${formatPromptWriteLog(metrics)}.`);
               recordPromptWriteTelemetry(operation, metrics);
@@ -972,7 +1267,8 @@ async function runCodexCli<T>(
 
           if (stdoutBuffer.trim().length > 0) {
             stdoutBuffer = processCliLines(
-              `${stdoutBuffer}\n`,
+              `${stdoutBuffer}
+`,
               emitCliLine,
             );
           }
@@ -984,14 +1280,14 @@ async function runCodexCli<T>(
             logCliFailureOutputOnce();
             emitFallbackOnce("timeout", timeoutError);
             progress.report({ message: timeoutError.message });
-            return reject(timeoutError);
+            return rejectWithTelemetry(reject, timeoutError);
           }
 
           if (cliError) {
             logCliFailureOutputOnce();
             emitFallbackOnce("network", cliError);
             progress.report({ message: cliError.message });
-            return reject(cliError);
+            return rejectWithTelemetry(reject, cliError);
           }
 
           if (code !== 0) {
@@ -1012,7 +1308,7 @@ async function runCodexCli<T>(
             logCliFailureOutputOnce();
             emitFallbackOnce("network", error);
             progress.report({ message: error.message });
-            return reject(error);
+            return rejectWithTelemetry(reject, error);
           }
 
           if (typeof resultPayload === "undefined") {
@@ -1022,11 +1318,12 @@ async function runCodexCli<T>(
             logCliFailureOutputOnce();
             emitFallbackOnce("network", error);
             progress.report({ message: error.message });
-            return reject(error);
+            return rejectWithTelemetry(reject, error);
           }
 
           progress.report({ message: "Codex response received." });
-          resolve(resultPayload);
+          const metrics = finalize("success");
+          resolve({ payload: resultPayload, metrics });
         });
 
         function handleCliEvent(event: CodexCliEvent<T>): void {
@@ -1061,15 +1358,115 @@ async function runCodexCli<T>(
         ): void {
           if (!emittedFallback) {
             emittedFallback = true;
+            fallbackReason = reason;
             offlineFallbackEmitter.fire({ reason, error });
             log(`[Codex] Request failed: ${error.message}`);
             progress.report({ message: error.message });
           }
         }
       });
-    },
-  );
+    };
+
+    if (showProgress) {
+      return vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: progressTitle,
+          cancellable: false,
+        },
+        (progress) => runWithProgress(progress),
+      );
+    }
+
+    return runWithProgress({ report() {} } as vscode.Progress<{ message?: string }>);
+  } finally {
+    if (promptDir) {
+      await fsPromises.rm(promptDir, { recursive: true, force: true });
+    }
+  }
 }
+async function runLegacyShadowComparison<T>(
+  config: CommitSmithConfig,
+  operation: CodexOperation,
+  payload: unknown,
+  options: RunCodexCliOptions | undefined,
+  shadowMetrics: CodexInvocationMetrics,
+): Promise<void> {
+  try {
+    const legacyResult = await runCodexCliImpl(
+      config,
+      "legacy",
+      operation,
+      payload,
+      options ?? {},
+      false,
+    );
+    recordCodexShadowComparisonTelemetry(
+      shadowMetrics,
+      legacyResult.metrics,
+    );
+  } catch (error) {
+    const legacyMetrics =
+      error instanceof CodexInvocationError ? error.metrics : undefined;
+    recordCodexShadowComparisonTelemetry(
+      shadowMetrics,
+      legacyMetrics,
+      error instanceof Error ? error : undefined,
+    );
+  }
+}
+
+function resolveInvocationPath(
+  baseVersion: InvocationVersion,
+  config: CommitSmithConfig,
+  execution?: CodexExecutionOptions,
+): CodexInvocationPath {
+  if (execution?.invocationPath) {
+    return execution.invocationPath;
+  }
+
+  if (baseVersion === "legacy" || baseVersion === "shadow") {
+    return baseVersion;
+  }
+
+  const extraArgs = config.codexExtraArgs ?? [];
+  if (extraArgs.some((arg) => arg.includes("legacy") || arg.includes("compat"))) {
+    return "legacy";
+  }
+  if (extraArgs.some((arg) => arg.includes("shadow"))) {
+    return "shadow";
+  }
+  return "new";
+}
+
+function recordCodexShadowComparisonTelemetry(
+  shadow: CodexInvocationMetrics,
+  legacy?: CodexInvocationMetrics,
+  error?: Error,
+): void {
+  recordTelemetry({
+    name: "workflow.codexShadowComparison",
+    schema: "workflow.codexShadowComparison",
+    schemaVersion: SHADOW_COMPARISON_SCHEMA_VERSION,
+    properties: {
+      shadowInvocationId: shadow.id,
+      legacyInvocationId: legacy?.id ?? "unknown",
+      shadowOutcome: shadow.outcome,
+      legacyOutcome: legacy?.outcome ?? "error",
+      shadowFallback: shadow.fallbackReason ?? "none",
+      legacyFallback: legacy?.fallbackReason ?? "unknown",
+      errorMessage: error?.message ?? "",
+    },
+    measurements: {
+      shadowDurationMs: Number(shadow.durationMs.toFixed(3)),
+      legacyDurationMs: Number((legacy?.durationMs ?? 0).toFixed(3)),
+      durationDeltaMs: Number(
+        ((legacy?.durationMs ?? 0) - shadow.durationMs).toFixed(3),
+      ),
+    },
+  });
+}
+
 
 function processCliLines(
   buffer: string,

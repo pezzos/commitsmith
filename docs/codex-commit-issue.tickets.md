@@ -109,30 +109,75 @@ While implementing the ticket, if you notice that a future ticket needs improvem
 
 ---
 
-## Ticket 5 – Split Commit Workflow into Fast and Guarded Lanes
+## Ticket 5a – Fast Lane Default and Pipeline Guards
 
 **Context**
-Reduce commit latency while keeping formatter/typecheck/test protections available for teams that need them.
+Introduce a lightweight commit path that skips formatter/typecheck/test stages unless teams explicitly require them.
 
 **Scope**
-- Update `src/pipeline.ts` to default to the fast lane that skips heavy stages but honours `commitSmith.pipeline.requireChecks`.
-- Add UI toggles/quick actions to opt into the guarded lane and trigger individual checks.
-- Queue formatter/typecheck/test stages asynchronously, surface last-known status, and offer single-click reruns.
+- Update `src/pipeline.ts` so the default lane bypasses heavy checks while respecting `commitSmith.pipeline.requireChecks`.
+- Ensure existing pipeline hooks (webhooks, journal updates, custom scripts) still trigger in the fast lane.
+- Document the configuration toggle and how teams can restore the guarded lane globally.
 
 **Return**
 - Return the list of files that were updated or created by the implementation.
 - Return the list of tests that were run to validate the implementation.
 - Return the list of tasks to do to test the implementation and ensure it's complete and correct.
 
-**Feedback**
-While implementing the ticket, if you notice that a future ticket needs improvement or a new ticket should be created, please take action.
-
 **Acceptance criteria**
-- Fast lane is the default, guarded lane is selectable, and both honour existing configuration and pipeline hooks (webhooks, journal updates, custom scripts).
-- Async formatter/typecheck/test execution prevents duplicate runs when toggling lanes and documents how stale results remain visible and refreshable.
-- Manual commands for checks are clearly surfaced so users retain status visibility.
+- Fast lane becomes the default when `requireChecks` is false, guarded lane remains available when true.
+- Legacy integrations (hooks, scripts, journal) behave identically in both lanes.
+- Configuration docs describe the new default and override paths.
 
 **Dependencies**: Ticket 3
+
+---
+
+## Ticket 5b – Guarded Lane Controls in the VS Code UI
+
+**Context**
+Expose clear UI affordances so users can opt into the guarded lane or trigger individual pipeline checks on demand.
+
+**Scope**
+- Add a quick-pick or status bar toggle that switches between fast and guarded lanes per workspace/session.
+- Surface discrete commands (formatter/typecheck/test) with one-click triggers and visible status.
+- Persist the last selected lane in workspace state without affecting the global default.
+
+**Return**
+- Return the list of files that were updated or created by the implementation.
+- Return the list of tests that were run to validate the implementation.
+- Return the list of tasks to do to test the implementation and ensure it's complete and correct.
+
+**Acceptance criteria**
+- Users can switch lanes without reloading the extension, and the choice updates future pipeline runs.
+- Manual check commands are visible and actionable from the UI.
+- Tests cover lane toggling and command availability.
+
+**Dependencies**: Ticket 5a
+
+---
+
+## Ticket 5c – Async Check Queue and Status Refresh
+
+**Context**
+Run formatter/typecheck/test stages asynchronously, provide status visibility, and avoid duplicate work when lanes change.
+
+**Scope**
+- Queue formatter/typecheck/test tasks outside the main commit flow, recording latest results for display.
+- Prevent redundant job launches by coalescing work when toggling between lanes.
+- Provide single-click reruns and document how stale results surface in the UI.
+
+**Return**
+- Return the list of files that were updated or created by the implementation.
+- Return the list of tests that were run to validate the implementation.
+- Return the list of tasks to do to test the implementation and ensure it's complete and correct.
+
+**Acceptance criteria**
+- Async jobs run at most once per change set unless explicitly rerun.
+- Last-known status remains visible with clear stale indicators and rerun affordances.
+- Telemetry or logs capture queue latency and rerun usage for monitoring.
+
+**Dependencies**: Tickets 5a, 5b
 
 ---
 
@@ -159,7 +204,7 @@ While implementing the ticket, if you notice that a future ticket needs improvem
 - Manual command links are available in the UI.
 - Automated coverage proves the dismissal preference survives reloads and host restarts.
 
-**Dependencies**: Ticket 5
+**Dependencies**: Ticket 5c
 
 ---
 
@@ -200,6 +245,11 @@ Deploy the new invocation safely, communicate changes, and provide guidance for 
 - Add automated comparisons for success rates, latency, and fallback frequency; prepare rollback checklist.
 - Publish a migration note covering the new CLI contract, minimum Codex version, and guidance for custom integrations.
 - Draft a communication plan for extension users.
+
+**Artifacts**
+- Migration guide: `docs/migrations/codex-cli-invocation.md`
+- Rollout plan & rollback checklist: `docs/rollout/codex-cli-rollout.md`
+- Telemetry comparer: `node scripts/analyze-codex-shadow.mjs <telemetry.jsonl>`
 
 **Return**
 - Return the list of files that were updated or created by the implementation.

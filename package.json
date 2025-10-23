@@ -46,7 +46,7 @@
   "contributes": {
     "configuration": [
       {
-        "title": "CommitSmith › Pipeline Steps",
+        "title": "CommitSmith \u203a Pipeline Steps",
         "properties": {
           "commitSmith.format.command": {
             "type": "string",
@@ -87,12 +87,17 @@
         }
       },
       {
-        "title": "CommitSmith › Pipeline Settings",
+        "title": "CommitSmith \u203a Pipeline Settings",
         "properties": {
           "commitSmith.pipeline.enable": {
             "type": "boolean",
             "default": true,
             "description": "Enable the automated pre-commit pipeline."
+          },
+          "commitSmith.pipeline.requireChecks": {
+            "type": "boolean",
+            "default": false,
+            "description": "Run formatter/typecheck/test stages by default (guarded lane)."
           },
           "commitSmith.pipeline.maxAiFixAttempts": {
             "type": "number",
@@ -108,7 +113,7 @@
         }
       },
       {
-        "title": "CommitSmith › Commit Workflow",
+        "title": "CommitSmith \u203a Commit Workflow",
         "properties": {
           "commitSmith.commit.pushAfter": {
             "type": "boolean",
@@ -137,7 +142,7 @@
         }
       },
       {
-        "title": "CommitSmith › Codex",
+        "title": "CommitSmith \u203a Codex",
         "properties": {
           "commitSmith.codex.model": {
             "type": "string",
@@ -191,8 +196,19 @@
           "commitSmith.codex.serenaOverride": {
             "type": "string",
             "default": "",
-            "description": "Optional MCP override passed as -c mcp_servers.serena=… when invoking the Codex CLI (e.g. '{command=\"/path/to/serena\",optional=true}').",
+            "description": "Optional MCP override passed as -c mcp_servers.serena=\u2026 when invoking the Codex CLI (e.g. '{command=\"/path/to/serena\",optional=true}').",
             "order": 90
+          },
+          "commitSmith.codex.cliInvocationVersion": {
+            "type": "string",
+            "enum": [
+              "legacy",
+              "shadow",
+              "new"
+            ],
+            "default": "shadow",
+            "description": "Select the Codex CLI invocation strategy. Shadow mode runs legacy and new paths side-by-side for telemetry before GA.",
+            "order": 95
           }
         }
       }
@@ -201,7 +217,7 @@
       {
         "command": "commitSmith.generateFromJournal",
         "title": "CommitSmith: AI Commit (Journal)",
-        "shortTitle": "⚒️",
+        "shortTitle": "\u2692\ufe0f",
         "icon": "$(tools)",
         "category": "CommitSmith"
       },
@@ -228,6 +244,36 @@
       {
         "command": "commitSmith.codexBootstrap",
         "title": "CommitSmith: Run Codex Onboarding",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.pipeline.chooseLane",
+        "title": "CommitSmith: Choose Pipeline Lane",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.pipeline.toggleLane",
+        "title": "CommitSmith: Toggle Pipeline Lane",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.pipeline.runFormat",
+        "title": "CommitSmith: Run Formatter Check",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.pipeline.runTypecheck",
+        "title": "CommitSmith: Run Typecheck Check",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.pipeline.runTests",
+        "title": "CommitSmith: Run Test Check",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.pipeline.showChecks",
+        "title": "CommitSmith: Show Check Status",
         "category": "CommitSmith"
       }
     ],
