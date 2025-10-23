@@ -2,7 +2,7 @@
   "name": "commit-smith",
   "displayName": "CommitSmith",
   "description": "Forge high-quality commits with Codex-assisted workflows.",
-  "version": "0.0.48",
+  "version": "0.0.49",
   "publisher": "epicsmith",
   "license": "MIT",
   "main": "./dist/extension.js",
@@ -46,7 +46,7 @@
   "contributes": {
     "configuration": [
       {
-        "title": "CommitSmith \u203a Pipeline Steps",
+        "title": "CommitSmith › Pipeline Steps",
         "properties": {
           "commitSmith.format.command": {
             "type": "string",
@@ -87,7 +87,7 @@
         }
       },
       {
-        "title": "CommitSmith \u203a Pipeline Settings",
+        "title": "CommitSmith › Pipeline Settings",
         "properties": {
           "commitSmith.pipeline.enable": {
             "type": "boolean",
@@ -113,7 +113,7 @@
         }
       },
       {
-        "title": "CommitSmith \u203a Commit Workflow",
+        "title": "CommitSmith › Commit Workflow",
         "properties": {
           "commitSmith.commit.pushAfter": {
             "type": "boolean",
@@ -142,7 +142,7 @@
         }
       },
       {
-        "title": "CommitSmith \u203a Codex",
+        "title": "CommitSmith › Codex",
         "properties": {
           "commitSmith.codex.model": {
             "type": "string",
@@ -196,7 +196,7 @@
           "commitSmith.codex.serenaOverride": {
             "type": "string",
             "default": "",
-            "description": "Optional MCP override passed as -c mcp_servers.serena=\u2026 when invoking the Codex CLI (e.g. '{command=\"/path/to/serena\",optional=true}').",
+            "description": "Optional MCP override passed as -c mcp_servers.serena=… when invoking the Codex CLI (e.g. '{command=\"/path/to/serena\",optional=true}').",
             "order": 90
           },
           "commitSmith.codex.cliInvocationVersion": {
@@ -217,7 +217,7 @@
       {
         "command": "commitSmith.generateFromJournal",
         "title": "CommitSmith: AI Commit (Journal)",
-        "shortTitle": "\u2692\ufe0f",
+        "shortTitle": "⚒️",
         "icon": "$(tools)",
         "category": "CommitSmith"
       },

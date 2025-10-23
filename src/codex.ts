@@ -15,7 +15,10 @@ import { getConfig } from "./config";
 import type { CommitSmithConfig, InvocationVersion } from "./config";
 import { getOutputChannel } from "./output";
 import { JournalData } from "./journal";
-import type { CodexExecutionOptions } from "./codexCli/prompts";
+import type {
+  CodexExecutionOptions,
+  CodexPromptInvocation,
+} from "./codexCli/prompts";
 import {
   CodexPromptValidationError,
   buildCommitPrompt,
@@ -114,15 +117,17 @@ export interface CommitMessageResult {
 
 export class CodexInvocationError extends Error {
   readonly metrics: CodexInvocationMetrics;
+  readonly cause?: Error;
 
   constructor(
     message: string,
     metrics: CodexInvocationMetrics,
     cause?: Error,
   ) {
-    super(message, cause ? { cause } : undefined);
+    super(message);
     this.name = "CodexInvocationError";
     this.metrics = metrics;
+    this.cause = cause;
   }
 }
 
@@ -927,7 +932,7 @@ export async function runCodexCli<T>(
     config,
     options?.execution,
   );
-  const result = await runCodexCliImpl(
+  const result = await runCodexCliImpl<T>(
     config,
     invocationPath,
     operation,
