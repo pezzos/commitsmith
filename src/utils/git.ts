@@ -16,6 +16,11 @@ const execFileAsync = promisify(execFile);
 let GIT_RESOLUTION_TIMEOUT_MS = 20000;
 let GIT_RESOLUTION_INTERVAL_MS = 2000;
 
+let lastWorkspaceHasGit: boolean | undefined;
+let lastRepositoryPathLogged: string | undefined;
+let lastResolveSummaryLogged: string | undefined;
+const loggedGitDirectories = new Set<string>();
+
 export interface GetRepoOptions {
   readonly suppressInitializationReminder?: boolean;
 }
@@ -24,7 +29,10 @@ export async function getRepo(
   options?: GetRepoOptions,
 ): Promise<GitRepository> {
   const workspaceHasGit = await workspaceHasGitRepository();
-  logInfo(`[git] workspaceHasGit=${workspaceHasGit}`);
+  if (lastWorkspaceHasGit !== workspaceHasGit) {
+    logInfo(`[git] workspaceHasGit=${workspaceHasGit}`);
+    lastWorkspaceHasGit = workspaceHasGit;
+  }
 
   const repository = await resolveRepositoryWithRetry();
   if (!repository) {
@@ -75,7 +83,11 @@ export async function getRepo(
     throw new Error(actionableMessage);
   }
 
-  logInfo(`[git] Using repository at ${repository.rootUri.fsPath}`);
+  const resolvedPath = repository.rootUri.fsPath;
+  if (lastRepositoryPathLogged !== resolvedPath) {
+    logInfo(`[git] Using repository at ${resolvedPath}`);
+    lastRepositoryPathLogged = resolvedPath;
+  }
   if (!options?.suppressInitializationReminder) {
     void remindInitializationIfNeeded(repository).catch((error) => {
       logError(
@@ -206,11 +218,15 @@ async function resolveRepository(): Promise<
   }
 
   const repo = gitApi.activeRepository ?? gitApi.repositories[0];
-  logInfo(
-    `[git] resolveRepository -> active=${
-      gitApi.activeRepository?.rootUri.fsPath ?? "none"
-    } repositories=${gitApi.repositories.map((entry) => entry.rootUri.fsPath).join(",") || "[]"}`,
-  );
+  const summary = `[git] resolveRepository -> active=${
+    gitApi.activeRepository?.rootUri.fsPath ?? "none"
+  } repositories=${gitApi.repositories
+    .map((entry) => entry.rootUri.fsPath)
+    .join(",") || "[]"}`;
+  if (lastResolveSummaryLogged !== summary) {
+    logInfo(summary);
+    lastResolveSummaryLogged = summary;
+  }
   return repo;
 }
 
@@ -281,7 +297,10 @@ async function workspaceHasGitRepository(): Promise<boolean> {
     const gitPath = path.join(folder.uri.fsPath, ".git");
     try {
       await fs.access(gitPath);
-      logInfo(`[git] Detected .git directory at ${gitPath}`);
+      if (!loggedGitDirectories.has(gitPath)) {
+        logInfo(`[git] Detected .git directory at ${gitPath}`);
+        loggedGitDirectories.add(gitPath);
+      }
       return true;
     } catch {
       // Continue checking other folders.

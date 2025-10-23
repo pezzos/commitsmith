@@ -189,7 +189,10 @@ async function main(): Promise<void> {
         },
       );
 
-      assert.equal(message, "Commit: feat: contract test");
+      assert.equal(
+        message,
+        "feat: contract test\n\n- feat: contract test",
+      );
       const record = await readCodexRecord(recordPath);
       assert.equal(
         record.argv[0],

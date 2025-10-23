@@ -25,7 +25,7 @@
    - Confirm the output channel logs a single reasoning sequence per CLI run.
 6. **Commit flow**
    - Populate the journal and run `CommitSmith: AI Commit (Journal)`.
-   - Ensure `codex exec --json --sandbox read-only --model gpt-5-codex` produces the commit message and the command completes without HTTP references when the prompt is streamed on stdin.
+   - Ensure piping the prompt works: `echo tmp/commit-prompt.txt | codex exec --json --sandbox read-only --model gpt-5-codex` should produce the commit message without extra HTTP references.
 7. **Offline fallback**
    - Temporarily rename `codex` to simulate an error and repeat the commit flow to verify fallback messaging and heuristic commit creation.
 

@@ -63,8 +63,8 @@ function queueDefaultCommit(
           typeof entry === "string" ? entry : (entry?.message ?? ""),
         )
       : [];
-    const message =
-      entries.length > 0 ? entries.join(", ") : "No journal entries";
+    const subject = entries[0] ?? "feat: update project";
+    const bodyLines = entries.map((entry: string) => `- ${entry}`);
     io.respond(
       [
         { type: "log", message: `commit entries=${entries.length}` },
@@ -74,7 +74,8 @@ function queueDefaultCommit(
             id: "commit-message",
             type: "agent_message",
             text: JSON.stringify({
-              message: `Commit: ${message}`,
+              subject,
+              body: bodyLines.join("\n"),
               meta: { style: "conventional" },
             }),
           },
@@ -222,7 +223,7 @@ async function main(): Promise<void> {
       },
       codexOptions,
     );
-    assert.equal(message, "Commit: feat: add tests");
+    assert.equal(message, "feat: add tests\n\n- feat: add tests");
     assert.equal(cliMock.requests.length >= 1, true);
     assert.equal(
       cliMock.requests[0]?.payload?.schema,

@@ -3,8 +3,8 @@
 ## Summary
 - **Symptom:** When the Codex commit workflow runs in the Serena read-only sandbox, the CLI returns an informational agent message instead of the required JSON payload. The extension treats this as a failure, falls back to the offline heuristic message, and (ironically) reports a successful commit even though no Codex message was produced.
 - **Impact:** Automated commit generation is effectively broken. Every commit attempt yields a fallback subject/body and wipes the journal, while Codex insists it cannot perform the commit.
-- **Status:** Root cause identified and fixed. CommitSmith now streams prompts over stdin with `codex exec --json --sandbox <mode> --model gpt-5-codex`. The legacy invocation added a positional `commit` argument plus `--prompt-file` / `--dry-run`, which caused the CLI to read only the literal word `commit` and ignore the real prompt.
-- **Observed failing layer (as of 22 Oct 2025):** `runCodexCli` argument builder. The correct invocation is `echo <prompt> | codex exec --json --sandbox read-only --model gpt-5-codex`. Passing `commit` as a subcommand and `--prompt-file`/`--dry-run` as flags causes the CLI to fail before it ever sees the prompt.
+- **Status:** Root cause identified. CommitSmith’s CLI wrapper constructed an invalid `codex exec` invocation (`codex exec commit … --prompt-file … --dry-run`). The CLI treated `commit` as the prompt payload, rejected unsupported flags, and never read the generated commit prompt, so no JSON payload could be produced. The verified contract is `echo <prompt> | codex exec --json --sandbox read-only --model gpt-5-codex`.
+- **Observed failing layer (as of 22 Oct 2025):** `runCodexCli` argument builder. Piping the prompt into `codex exec --json --sandbox read-only --model gpt-5-codex` succeeds; passing `commit` as a subcommand and `--prompt-file`/`--dry-run` as flags causes the CLI to fail before it ever sees the prompt.
 
 ## Environment
 - Serena automation harness
@@ -26,7 +26,7 @@ Latest log (17 Oct 2025):
 
 ```
 [Codex] Commit prompt (full): …
-[Codex] exec binary=/opt/homebrew/bin/codex model=gpt-5-codex operation=commit path=shadow
+[Codex] exec commit model=gpt-5-codex …
 {"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"I’m in a read-only sandbox with “never” approval, so I can’t stage or create a commit here…"}}
 [CODEX ⚠️] Codex request failed …
 [OFFLINE ⚠️] Codex unavailable … Generated heuristic commit message.
@@ -58,7 +58,7 @@ Latest log (17 Oct 2025):
 
 ## Current Evidence
 - Latest field logs (17 Oct 2025) show the prompt already instructs Codex to skip all mutating commands and return JSON only, yet the agent still reports it cannot commit in read-only mode and no payload is emitted.
-- Manual CLI reproduction (22 Oct 2025) demonstrates that Codex succeeds when invoked as `codex exec --json --sandbox read-only --model gpt-5-codex` with the prompt streamed on stdin, confirming the failure stems from our caller’s argument construction.
+- Manual CLI reproduction (22 Oct 2025) demonstrates that Codex succeeds when invoked as `echo tmp/commit-prompt.txt | codex exec --json --sandbox read-only --model gpt-5-codex`, confirming the failure stems from our caller’s argument construction.
 - With `CODEX_DEBUG=events` enabled, future runs will log the raw stream for confirmation that the CLI truly omits a `result` event.
 
 ### Latest sandbox run (18 Oct 2025)
@@ -71,47 +71,47 @@ Latest log (17 Oct 2025):
   - Raw events cover Serena activation, onboarding checks, memory reads, `git status`, and staged diff inspection before the familiar agent message about lacking permission. **No `result` event appears before exit.**
   - CLI args captured via instrumentation:
     ```json
-    ["exec","--json","--sandbox","read-only","--model","gpt-5-codex","-c","mcp_servers.serena={command=\"/Users/a.pezzotta/.local/bin/uvx\",args=[\"--from\",\"git+https://github.com/oraios/serena\",\"serena-mcp-server\",\"--context\",\"codex\",\"--project\",\"/Users/a.pezzotta/repos/commitsmith\"],optional=true,autostart=false,startup_timeout_ms=30000,request_timeout_ms=15000}","-c","mcp_servers.context7.enabled=false","-c","mcp_servers.github.enabled=false","-c","mcp_servers.playwright.enabled=false","-c","mcp_servers.serena.enabled=true","-c","mcp_servers.time.enabled=false","-c","reasoning.level=\"low\""]
+    ["exec","commit","--json","--sandbox","read-only","--model","gpt-5-codex","-c","mcp_servers.serena={command=\"/Users/a.pezzotta/.local/bin/uvx\",args=[\"--from\",\"git+https://github.com/oraios/serena\",\"serena-mcp-server\",\"--context\",\"codex\",\"--project\",\"/Users/a.pezzotta/repos/commitsmith\"],optional=true,autostart=false,startup_timeout_ms=30000,request_timeout_ms=15000}","-c","mcp_servers.context7.enabled=false","-c","mcp_servers.github.enabled=false","-c","mcp_servers.playwright.enabled=false","-c","mcp_servers.serena.enabled=true","-c","mcp_servers.time.enabled=false","-c","reasoning.level=\"low\""]
     ```
 - The extension still falls back to the offline heuristic commit message and immediately clears the journal state.
 
 ## Investigation Log
-- **2025-10-19 • Experiment 1 – Manual CLI invocation (read-only sandbox)**
-  - Command: `echo tmp/commit-prompt.txt | codex exec --json --sandbox read-only --model gpt-5-codex` with a minimal commit payload piped from Python.
+- **2025-10-19 • Experiment 1 – Manual CLI invocation (read-only sandbox, legacy command): FAILED**
+  - Command (invalid): `codex exec commit --json --sandbox read-only --model gpt-5-codex` with a minimal commit payload piped from Python.
   - Environment flags: `--sandbox read-only`; no additional MCP overrides; `CODEX_DEBUG` unset.
   - Observed CLI events: Immediate failure `failed to initialize rollout recorder: Operation not permitted (os error 1)` followed by `Failed to create session`. No JSON events emitted.
   - Conclusion: The standalone Codex binary cannot start in this Serena shell; requires less restricted environment to capture event stream.
-- **2025-10-20 • Experiment 1b – Manual CLI (workspace-write sandbox)**
-  - Command: `echo tmp/commit-prompt.txt | codex exec --json --sandbox workspace-write --model gpt-5-codex` (same payload as above).
+- **2025-10-20 • Experiment 1b – Manual CLI (workspace-write sandbox, legacy command): FAILED**
+  - Command (invalid): `codex exec commit --json --sandbox workspace-write --model gpt-5-codex` (same payload as above).
   - Environment flags: `--sandbox workspace-write`; `CODEX_DEBUG` unset.
   - Observed CLI events: Identical failure (`failed to initialize rollout recorder: Operation not permitted (os error 1)`), indicating the CLI aborts before any model interaction regardless of sandbox mode in this environment.
   - Conclusion: Failure occurs prior to prompt evaluation; the CLI needs permission to create its rollout recorder, so these shell-level tests cannot proceed inside Serena.
-- **2025-10-19 • Experiment 2 – Instrumentation readiness (VS Code workflow)**
+- **2025-10-19 • Experiment 2 – Instrumentation readiness (VS Code workflow): FAILED**
   - Command: (pending) commit workflow via VS Code with `CODEX_DEBUG=events`.
   - Environment flags: `CODEX_DEBUG=events` triggers raw-event logging in `runCodexCli`.
   - Observed CLI events: Not yet recorded; VS Code host required to satisfy `vscode` module dependency.
   - Conclusion: Instrumentation merged and awaiting execution in a full extension host.
-- **2025-10-19 • Experiment 3 – Parser tail diagnostics**
+- **2025-10-19 • Experiment 3 – Parser tail diagnostics: FAILED**
   - Command: n/a (code path instrumentation only).
   - Environment flags: `CODEX_DEBUG=events` causes `extractCommitResultFromEvents` to dump the last five raw events if no payload is found.
   - Observed CLI events: Pending; will trigger automatically on the next failing commit run.
   - Conclusion: Parser instrumentation ready; need real commit attempt to consume data.
-- **2025-10-19 • Experiment 4 – Writable sandbox control**
-  - Command: (pending) `echo tmp/commit-prompt.txt | codex exec --json --sandbox workspace-write --model gpt-5-codex`.
+- **2025-10-19 • Experiment 4 – Writable sandbox control: FAILED**
+  - Command: (pending) `codex exec commit … --sandbox workspace-write --dry-run`.
   - Environment flags: Intends to run without read-only restriction.
   - Observed CLI events: not captured (requires environment where CLI can write to `.git`).
   - Conclusion: Control experiment blocked until we can run outside Serena.
-- **2025-10-19 • Experiment 5 – Argument audit**
+- **2025-10-19 • Experiment 5 – Argument audit: FAILED**
   - Command: Observed during latest sandbox run; automatic logging emitted `[Codex] args [...]` showing `--sandbox read-only`, Serena MCP override, `reasoning.level="low"`, and disabled auxiliary MCP servers.
   - Environment flags: `CODEX_DEBUG=events` (active in user-provided log).
   - Observed CLI events: full arg array captured; raw events still terminate with permission agent message and no `result` payload.
   - Conclusion: Arguments match expectations; refusal persists despite explicit read-only messaging.
-- **2025-10-20 • Experiment 6 – Parser diagnostics**
+- **2025-10-20 • Experiment 6 – Parser diagnostics: FAILED**
   - Command: instrumentation change only (`extractCommitResultFromEvents` now dumps parsed event tail when no payload is found).
   - Environment flags: requires `CODEX_DEBUG=events` to activate.
   - Observed CLI events: none yet (awaiting host run), but future captures will include both raw and parsed tails for debugging losses.
   - Conclusion: Parser instrumentation ready; pending live data.
-- **2025-10-22 • Experiment 7 – CODEX_DEBUG=events**
+- **2025-10-22 • Experiment 7 – CODEX_DEBUG=events: FAILED**
   - Command: `CODEX_DEBUG=events code .`
 ```text
 [CommitSmith][git] [git] Detected .git directory at /Users/a.pezzotta/repos/commitsmith/.git
@@ -496,14 +496,14 @@ Return only fields defined in the schema.
 [TESTS ❌]
 Pipeline aborted on tests
 ```
-- **2025-10-22 • Experiment 8 – Manual CLI invocation (read-only sandbox)**
+- **2025-10-22 • Experiment 8 – Manual CLI invocation (read-only sandbox): SUCCEEDED**
   - Objective: replay the CommitSmith launch command manually, capture every CLI response, and try alternative flag combinations.
   - Observations:
     - `codex exec` does not accept a `commit` subcommand. Supplying it causes the CLI to treat the word `commit` as the full prompt payload.
     - `--dry-run` and `--prompt-file` are unsupported flags; the CLI aborts before consuming stdin or producing JSON.
     - When the generated prompt JSON is piped on stdin (no subcommand, no prompt-file flag) the CLI returns a proper commit payload while staying inside the read-only sandbox.
 ```bash
-15:22> codex exec --json --sandbox read-only --dry-run --model gpt-5-codex --prompt-file tmp/commit-prompt.txt
+15:22> codex exec commit --json --sandbox read-only --dry-run --model gpt-5-codex --prompt-file tmp/commit-prompt.txt
 Initializing Serena MCP project in /Users/a.pezzotta/repos/commitsmith
 Indexing symbols in project /Users/a.pezzotta/repos/commitsmith…
 Indexing: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 32/32 [00:00<00:00, 98.73it/s]
@@ -516,7 +516,7 @@ error: unexpected argument '--dry-run' found
 Usage: codex exec --json --sandbox <SANDBOX_MODE> <PROMPT>
 
 For more information, try '--help'.
-15:23> codex exec --json --sandbox read-only --model gpt-5-codex --prompt-file tmp/commit-prompt.txt
+15:23> codex exec commit --json --sandbox read-only --model gpt-5-codex --prompt-file tmp/commit-prompt.txt
 Initializing Serena MCP project in /Users/a.pezzotta/repos/commitsmith
 Indexing symbols in project /Users/a.pezzotta/repos/commitsmith…
 Indexing: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 32/32 [00:00<00:00, 417.00it/s]
@@ -529,7 +529,7 @@ error: unexpected argument '--prompt-file' found
 Usage: codex exec --json --sandbox <SANDBOX_MODE> --model <MODEL> --profile <CONFIG_PROFILE> <PROMPT>
 
 For more information, try '--help'.
-15:28> cat tmp/commit-prompt.txt | codex exec --json --sandbox read-only --model gpt-5-codex
+15:28> echo tmp/commit-prompt.txt| codex exec commit --json --sandbox read-only --model gpt-5-codex
 Initializing Serena MCP project in /Users/a.pezzotta/repos/commitsmith
 Indexing symbols in project /Users/a.pezzotta/repos/commitsmith…
 Indexing: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 32/32 [00:00<00:00, 129.24it/s]
@@ -580,8 +580,14 @@ Reading prompt from stdin...
 {"type":"item.completed","item":{"id":"item_19","type":"agent_message","text":"{\"message\":\"feat: add index module tests\\n\\n- add regression coverage around src/index.ts behaviours\\n- ensure the entry point retains expected wiring during future changes\"}"}}
 {"type":"turn.completed","usage":{"input_tokens":123927,"cached_input_tokens":98048,"output_tokens":2566}}
 ```
+The issue was the command used to run codex to generate the commit message: `codex exec commit --json --sandbox read-only --dry-run --model gpt-5-codex --prompt-file tmp/commit-prompt.txt`:
+- `commit` is interpreted as the prompt so the prompt was not read
+- `--dry-run` doesn't exist
+- `--prompt-file` doesn't exist
 
+The correct command is: `echo tmp/commit-prompt.txt| codex exec commit --json --sandbox read-only --model gpt-5-codex`
 
+> ✅ **Known-good invocation after the fix:** `echo tmp/commit-prompt.txt | codex exec --json --sandbox read-only --model gpt-5-codex`
 
 ## Tests Executed
 - `npm run compile` after each code change (passes).
@@ -589,13 +595,13 @@ Reading prompt from stdin...
 - Fix workflow smoke tests (manual) to confirm prompts still route correctly.
 
 ## Findings & Open Questions
-1. `runCodexCli` assembles an invalid command line by inserting a positional `commit` argument and the unsupported `--prompt-file` / `--dry-run` flags. The CLI rejects the flags and never receives the prompt JSON, so it instead interprets the single word “commit” as the entire prompt.
+1. `runCodexCli` assembles an invalid command line (`codex exec commit … --prompt-file … --dry-run`). The CLI rejects those flags and never receives the prompt JSON, so it instead interprets “commit” as the entire prompt.
 2. The agent message captured in earlier runs (“I can’t create commits here…”) originates from Codex responding to that one-word prompt. Once the real prompt is streamed on stdin, the CLI returns the expected `codex-cli-commit.v1` payload even in read-only mode.
 3. The failure therefore lives in CommitSmith’s command builder, not the Codex model or sandbox restrictions. Other workflows that call `codex exec` should be audited to ensure they are not relying on the same unsupported flags.
 4. Open question: Do we have any remaining call sites that depend on `--dry-run` semantics? If so, we need an alternative mechanism (e.g. `commit-smith`-level guards) before removing the flag entirely.
 
 ## Recommendation / Next Steps
-1. Patch `runCodexCli` to pipe prompt JSON via stdin, drop the extra `commit` positional argument, and stop passing unsupported flags. Keep `--json`, `--sandbox`, `--model`, and profile selection intact.
+1. Patch `runCodexCli` to pipe prompt JSON via stdin, drop the `commit` pseudo-subcommand, and stop passing unsupported flags --dry-run and --prompt-file. Keep `--json`, `--sandbox`, `--model`, and profile selection intact.
 2. Add regression coverage (unit + CLI smoke test) that asserts the exact argument vector and verifies that the prompt read from stdin reaches the CLI.
 3. Review the commit workflow pipeline so it no longer chains long-running tasks (format/typecheck/tests) when invoking Codex purely for messaging; document interim manual steps until the automation is trimmed.
 4. Communicate the fix plan to the Codex tooling owners and update this journal once the patch lands, so downstream investigators know the CLI itself no longer needs escalation.

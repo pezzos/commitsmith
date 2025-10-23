@@ -1,8 +1,8 @@
 # Codex Commit Issue – Remediation Plan
 
 ## Context
-- Experiment 8 proved the Codex CLI works when invoked as `codex exec --json --sandbox <mode> --model <model>` with the prompt streamed on stdin.
-- CommitSmith currently inserts a positional `commit` argument and the `--prompt-file` / `--dry-run` flags, so Codex never reads the generated prompt and returns an agent error instead of JSON.
+- Experiment 8 proved the Codex CLI works when invoked as `echo tmp/commit-prompt.txt | codex exec --json --sandbox read-only --model gpt-5-codex`, with the prompt streamed on stdin.
+- CommitSmith currently calls `codex exec commit … --prompt-file … --dry-run`, so Codex never reads the generated prompt and returns an agent error instead of JSON.
 - The commit workflow also chains format/typecheck/test runners before Codex runs, stretching the end-to-end cycle for every commit attempt.
 
 ## Objectives
