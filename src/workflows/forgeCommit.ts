@@ -81,7 +81,9 @@ export async function forgeCommitFromJournal(
     journalConfirmed: false,
     failedStep: undefined,
   };
-  const finalizeResult = (result: ForgeCommitResult): ForgeCommitResult => {
+  const finalizeResult = (
+    result: ForgeCommitResult,
+  ): ForgeCommitResult => {
     recordCommitFlowTelemetry(telemetry);
     return result;
   };
@@ -148,7 +150,8 @@ export async function forgeCommitFromJournal(
         telemetry.codexMs = error.metrics.durationMs;
         telemetry.invocationId = error.metrics.id;
         telemetry.invocationPath = error.metrics.path;
-        telemetry.fallbackReason = error.metrics.fallbackReason ?? "unknown";
+        telemetry.fallbackReason =
+          error.metrics.fallbackReason ?? "unknown";
       } else {
         telemetry.codexOutcome = "error";
         telemetry.fallbackReason = "unknown";
@@ -241,7 +244,9 @@ interface CommitFlowTelemetry {
   failedStep?: PipelineStepId;
 }
 
-function recordCommitFlowTelemetry(telemetry: CommitFlowTelemetry): void {
+function recordCommitFlowTelemetry(
+  telemetry: CommitFlowTelemetry,
+): void {
   const properties: Record<string, string> = {
     lane: telemetry.lane,
     pipelineStatus: telemetry.pipelineStatus,

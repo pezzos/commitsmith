@@ -275,7 +275,10 @@ function parseCliArgs(value: string | undefined): string[] {
     const token = parts[index];
     const lower = token.toLowerCase();
 
-    if (lower.startsWith("--prompt-file=") || bannedFlags.has(lower)) {
+    if (
+      lower.startsWith("--prompt-file=") ||
+      bannedFlags.has(lower)
+    ) {
       console.warn(
         `[CommitSmith] Removing deprecated Codex CLI flag "${token}" from commitSmith.codex.extraArgs.`,
       );

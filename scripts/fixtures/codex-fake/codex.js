@@ -9,14 +9,20 @@ const args = process.argv.slice(2);
 function writeRecord(recordPath, data) {
   try {
     fs.mkdirSync(path.dirname(recordPath), { recursive: true });
-    fs.writeFileSync(recordPath, JSON.stringify(data, null, 2), "utf8");
+    fs.writeFileSync(
+      recordPath,
+      JSON.stringify(data, null, 2),
+      "utf8",
+    );
   } catch {
     // best-effort recording; ignore failures
   }
 }
 
 if (args.length === 1 && args[0] === "--version") {
-  process.stdout.write(`${process.env.CODEX_FAKE_VERSION ?? "codex 0.6.0"}\n`);
+  process.stdout.write(
+    `${process.env.CODEX_FAKE_VERSION ?? "codex 0.6.0"}\n`,
+  );
   process.exit(0);
 }
 

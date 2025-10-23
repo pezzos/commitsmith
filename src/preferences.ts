@@ -17,7 +17,9 @@ export async function recordFastLaneReminderAcknowledged(
   await store.update(FAST_LANE_REMINDER_KEY, true);
 }
 
-export function resetFastLaneReminder(store: PreferenceStore): Thenable<void> {
+export function resetFastLaneReminder(
+  store: PreferenceStore,
+): Thenable<void> {
   return store.update(FAST_LANE_REMINDER_KEY, undefined);
 }
 

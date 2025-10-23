@@ -40,7 +40,11 @@ import {
 } from "./preferences";
 
 const execFileAsync = promisify(execFile);
-const PIPELINE_STEPS: PipelineStepId[] = ["format", "typecheck", "tests"];
+const PIPELINE_STEPS: PipelineStepId[] = [
+  "format",
+  "typecheck",
+  "tests",
+];
 const COMMAND_GENERATE = "commitSmith.generateFromJournal";
 const COMMAND_CLEAR = "commitSmith.clearJournal";
 const COMMAND_INSTALL_HOOKS = "commitSmith.installHooks";
@@ -49,8 +53,10 @@ const COMMAND_DRY_RUN = "commitSmith.dryRun";
 const COMMAND_BOOTSTRAP = "commitSmith.codexBootstrap";
 const COMMAND_SHOW_CHECKS = "commitSmith.pipeline.showChecks";
 const WORKSPACE_STATE_PIPELINE_LANE = "commitSmith.pipeline.lane";
-const COMMAND_CHOOSE_PIPELINE_LANE = "commitSmith.pipeline.chooseLane";
-const COMMAND_TOGGLE_PIPELINE_LANE = "commitSmith.pipeline.toggleLane";
+const COMMAND_CHOOSE_PIPELINE_LANE =
+  "commitSmith.pipeline.chooseLane";
+const COMMAND_TOGGLE_PIPELINE_LANE =
+  "commitSmith.pipeline.toggleLane";
 const COMMAND_RUN_FORMAT_CHECK = "commitSmith.pipeline.runFormat";
 const COMMAND_RUN_TYPECHECK = "commitSmith.pipeline.runTypecheck";
 const COMMAND_RUN_TESTS = "commitSmith.pipeline.runTests";
@@ -84,9 +90,7 @@ class PipelineLaneController implements vscode.Disposable {
     new vscode.EventEmitter<PipelineLane>();
   readonly onDidChange = this.changeEmitter.event;
 
-  constructor(
-    private readonly context: vscode.ExtensionContext,
-  ) {
+  constructor(private readonly context: vscode.ExtensionContext) {
     this.statusItem = vscode.window.createStatusBarItem(
       vscode.StatusBarAlignment.Left,
       101,
@@ -99,7 +103,9 @@ class PipelineLaneController implements vscode.Disposable {
       this.current = stored;
     } else {
       const config = getConfig();
-      this.current = config.pipelineRequireChecks ? "guarded" : "fast";
+      this.current = config.pipelineRequireChecks
+        ? "guarded"
+        : "fast";
     }
     this.render();
     this.statusItem.show();
@@ -128,17 +134,21 @@ class PipelineLaneController implements vscode.Disposable {
   }
 
   async promptForLane(): Promise<void> {
-    const items: Array<vscode.QuickPickItem & { lane: PipelineLane }> = [
+    const items: Array<
+      vscode.QuickPickItem & { lane: PipelineLane }
+    > = [
       {
         label: this.current === "fast" ? "✓ Fast lane" : "Fast lane",
         description: "Skip formatter/typecheck/test unless required.",
         lane: "fast",
       },
       {
-        label: this.current === "guarded"
-          ? "✓ Guarded lane"
-          : "Guarded lane",
-        description: "Always run formatter/typecheck/test before commit.",
+        label:
+          this.current === "guarded"
+            ? "✓ Guarded lane"
+            : "Guarded lane",
+        description:
+          "Always run formatter/typecheck/test before commit.",
         lane: "guarded",
       },
     ];
@@ -240,7 +250,9 @@ class ManualCheckReminder {
         message,
         ...actions,
       );
-    await recordFastLaneReminderAcknowledged(this.context.globalState);
+    await recordFastLaneReminderAcknowledged(
+      this.context.globalState,
+    );
     if (selection?.manualStep) {
       this.onManualCommand(selection.manualStep);
     }
@@ -261,7 +273,10 @@ interface CheckStatus {
 class PipelineCheckScheduler implements vscode.Disposable {
   private readonly statusItem: vscode.StatusBarItem;
   private readonly statuses = new Map<PipelineStepId, CheckStatus>();
-  private readonly stepRuns = new Map<PipelineStepId, Promise<void>>();
+  private readonly stepRuns = new Map<
+    PipelineStepId,
+    Promise<void>
+  >();
   private pendingAll?: Promise<void>;
   private lastSignature?: string;
   private readonly disposables: vscode.Disposable[] = [];
@@ -285,9 +300,8 @@ class PipelineCheckScheduler implements vscode.Disposable {
     this.renderSummary();
     this.statusItem.show();
 
-    this.reminder = new ManualCheckReminder(
-      context,
-      (step) => this.prepareManualCommand(step),
+    this.reminder = new ManualCheckReminder(context, (step) =>
+      this.prepareManualCommand(step),
     );
 
     this.disposables.push(
@@ -324,7 +338,10 @@ class PipelineCheckScheduler implements vscode.Disposable {
   }
 
   initialize(): void {
-    void this.handleLaneChange(this.laneController.lane, "activation");
+    void this.handleLaneChange(
+      this.laneController.lane,
+      "activation",
+    );
   }
 
   async handleLaneChange(
@@ -347,10 +364,7 @@ class PipelineCheckScheduler implements vscode.Disposable {
     }
   }
 
-  async runStep(
-    step: PipelineStepId,
-    reason: string,
-  ): Promise<void> {
+  async runStep(step: PipelineStepId, reason: string): Promise<void> {
     const existing = this.stepRuns.get(step);
     if (existing) {
       this.log(
@@ -385,7 +399,8 @@ class PipelineCheckScheduler implements vscode.Disposable {
       {
         mode: "run",
         label: "$(sync) Run All Checks",
-        description: "Queue formatter/typecheck/test in the background.",
+        description:
+          "Queue formatter/typecheck/test in the background.",
         step: "all",
       },
       ...PIPELINE_STEPS.map<CheckQuickPickItem>((step) => {
@@ -416,12 +431,10 @@ class PipelineCheckScheduler implements vscode.Disposable {
           "Inserts the command into a terminal without running it automatically.",
       })),
     ];
-    const selection = await vscode.window.showQuickPick<CheckQuickPickItem>(
-      items,
-      {
+    const selection =
+      await vscode.window.showQuickPick<CheckQuickPickItem>(items, {
         placeHolder: "CommitSmith pipeline checks",
-      },
-    );
+      });
     if (!selection) {
       return;
     }
@@ -436,7 +449,10 @@ class PipelineCheckScheduler implements vscode.Disposable {
       await this.runAll("manual quick pick");
       return;
     }
-    await this.runStep(selection.step as PipelineStepId, "manual quick pick");
+    await this.runStep(
+      selection.step as PipelineStepId,
+      "manual quick pick",
+    );
   }
 
   markStale(reason: string): void {
@@ -498,7 +514,9 @@ class PipelineCheckScheduler implements vscode.Disposable {
     let repoSignature: string | undefined;
     try {
       const repo = await getRepo();
-      repoSignature = await this.computeSignature(repo.rootUri.fsPath);
+      repoSignature = await this.computeSignature(
+        repo.rootUri.fsPath,
+      );
     } catch (error) {
       this.log(
         `[CHECKS] Unable to inspect repository (${(error as Error).message}).`,
@@ -531,7 +549,9 @@ class PipelineCheckScheduler implements vscode.Disposable {
   }
 
   private async executeAll(reason: string): Promise<void> {
-    this.log(`[CHECKS] Queuing formatter/typecheck/test (${reason}).`);
+    this.log(
+      `[CHECKS] Queuing formatter/typecheck/test (${reason}).`,
+    );
     for (const step of PIPELINE_STEPS) {
       await this.runStep(step, `batch: ${reason}`);
     }
@@ -581,7 +601,8 @@ class PipelineCheckScheduler implements vscode.Disposable {
         lane: "guarded",
         limitToSteps: [step],
         hooks: {
-          onLog: (message: string) => this.outputChannel.appendLine(message),
+          onLog: (message: string) =>
+            this.outputChannel.appendLine(message),
           onStepStart: () => {
             /* already handled */
           },
@@ -782,7 +803,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(COMMAND_GENERATE, () =>
-      handleGenerateFromJournal(outputChannel, laneController, scheduler),
+      handleGenerateFromJournal(
+        outputChannel,
+        laneController,
+        scheduler,
+      ),
     ),
     vscode.commands.registerCommand(
       COMMAND_CLEAR,
@@ -801,11 +826,13 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(COMMAND_BOOTSTRAP, () =>
       handleCodexBootstrap(context, outputChannel),
     ),
-    vscode.commands.registerCommand(COMMAND_CHOOSE_PIPELINE_LANE, () =>
-      laneController.promptForLane(),
+    vscode.commands.registerCommand(
+      COMMAND_CHOOSE_PIPELINE_LANE,
+      () => laneController.promptForLane(),
     ),
-    vscode.commands.registerCommand(COMMAND_TOGGLE_PIPELINE_LANE, () =>
-      laneController.toggleLane(),
+    vscode.commands.registerCommand(
+      COMMAND_TOGGLE_PIPELINE_LANE,
+      () => laneController.toggleLane(),
     ),
     vscode.commands.registerCommand(COMMAND_SHOW_CHECKS, () =>
       scheduler.showQuickPick(),

@@ -107,7 +107,11 @@ interface RepoSnapshot {
   readonly untrackedDir?: string;
 }
 
-const STEP_SEQUENCE: PipelineStepId[] = ["format", "typecheck", "tests"];
+const STEP_SEQUENCE: PipelineStepId[] = [
+  "format",
+  "typecheck",
+  "tests",
+];
 const STEP_LABELS: Record<PipelineStepId, string> = {
   format: "FORMAT",
   typecheck: "TYPECHECK",

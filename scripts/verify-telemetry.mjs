@@ -13,14 +13,18 @@ const telemetryArtifacts = [
   path.join(distPath, "workflows", "forgeCommit.js"),
 ];
 
-const missing = telemetryArtifacts.filter((file) => !fs.existsSync(file));
+const missing = telemetryArtifacts.filter(
+  (file) => !fs.existsSync(file),
+);
 
 if (missing.length > 0) {
   console.warn(
     "[telemetry] Build artefacts missing:",
     missing.map((file) => path.relative(repoRoot, file)).join(", "),
   );
-  console.warn("[telemetry] Run `npm run compile` before re-running this script.");
+  console.warn(
+    "[telemetry] Run `npm run compile` before re-running this script.",
+  );
   process.exitCode = 1;
 } else {
   console.info("[telemetry] Build artefacts present.");
@@ -28,7 +32,9 @@ if (missing.length > 0) {
 
 console.info("");
 console.info("Telemetry staging checklist:");
-console.info("1. Start CommitSmith on the staging workspace with the fast lane enabled.");
+console.info(
+  "1. Start CommitSmith on the staging workspace with the fast lane enabled.",
+);
 console.info(
   "2. Trigger a commit flow and a guarded-lane run so `workflow.commitFlow.v1` records both lanes.",
 );

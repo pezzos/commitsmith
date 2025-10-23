@@ -4,7 +4,9 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 function usage() {
-  console.info("Usage: node scripts/analyze-codex-shadow.mjs <telemetry.jsonl>");
+  console.info(
+    "Usage: node scripts/analyze-codex-shadow.mjs <telemetry.jsonl>",
+  );
 }
 
 async function main() {
@@ -49,14 +51,13 @@ async function main() {
   const summary = new Map();
   for (const event of invocations) {
     const pathKey = event?.properties?.path ?? "unknown";
-    const stats =
-      summary.get(pathKey) ?? {
-        total: 0,
-        success: 0,
-        fallback: 0,
-        error: 0,
-        durationMs: 0,
-      };
+    const stats = summary.get(pathKey) ?? {
+      total: 0,
+      success: 0,
+      fallback: 0,
+      error: 0,
+      durationMs: 0,
+    };
     stats.total += 1;
     const outcome = event?.properties?.outcome ?? "unknown";
     if (outcome === "success") {
@@ -77,7 +78,9 @@ async function main() {
   console.info("=== Codex Invocation Summary ===");
   for (const [pathKey, stats] of summary.entries()) {
     const average =
-      stats.total > 0 ? (stats.durationMs / stats.total).toFixed(2) : "0.00";
+      stats.total > 0
+        ? (stats.durationMs / stats.total).toFixed(2)
+        : "0.00";
     console.info(
       `${pathKey.padEnd(7)} total=${stats.total} success=${stats.success} fallback=${stats.fallback} error=${stats.error} avgDurationMs=${average}`,
     );
@@ -95,7 +98,9 @@ async function main() {
       );
     }
   } else {
-    console.info("\n[shadow] No workflow.codexShadowComparison events found.");
+    console.info(
+      "\n[shadow] No workflow.codexShadowComparison events found.",
+    );
   }
 }
 

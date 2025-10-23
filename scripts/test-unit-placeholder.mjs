@@ -19,9 +19,11 @@ const initializerModule = await import(
 const journalModule = await import(path.join(distPath, "journal.js"));
 const agentsModule = await import(path.join(distPath, "agents.js"));
 const preferencesModule = await import(
-  path.join(distPath, "preferences.js"),
+  path.join(distPath, "preferences.js")
 );
-const telemetryModule = await import(path.join(distPath, "telemetry.js"));
+const telemetryModule = await import(
+  path.join(distPath, "telemetry.js")
+);
 
 const { getInitializationStatus, initializeRepository } =
   initializerModule;
@@ -325,7 +327,10 @@ recordTelemetry({
   schemaVersion: 1,
   properties: { sample: "true" },
 });
-if (telemetryDisposable && typeof telemetryDisposable.dispose === "function") {
+if (
+  telemetryDisposable &&
+  typeof telemetryDisposable.dispose === "function"
+) {
   telemetryDisposable.dispose();
 }
 assert.equal(telemetryEvents.length, 1);

@@ -64,7 +64,8 @@ export function createCodexCliMock() {
     const stdin = new PassThrough();
     const normalizedArgs = Array.isArray(args) ? [...args] : [];
     const isVersionRequest =
-      normalizedArgs.length === 1 && normalizedArgs[0] === "--version";
+      normalizedArgs.length === 1 &&
+      normalizedArgs[0] === "--version";
 
     const child = new EventEmitter();
     child.stdout = stdout;
@@ -96,14 +97,15 @@ export function createCodexCliMock() {
         const {
           stdoutText = typeof simulation === "string"
             ? simulation
-            : simulation?.stdout ?? "",
+            : (simulation?.stdout ?? ""),
           stderrText = typeof simulation === "object" && simulation
-            ? simulation.stderr ?? ""
+            ? (simulation.stderr ?? "")
             : "",
           exitCode = typeof simulation === "object" && simulation
-            ? simulation.exitCode ?? 0
+            ? (simulation.exitCode ?? 0)
             : 0,
-        } = typeof simulation === "object" && !(simulation instanceof Error)
+        } = typeof simulation === "object" &&
+        !(simulation instanceof Error)
           ? simulation
           : {};
 

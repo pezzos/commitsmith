@@ -113,7 +113,8 @@ function assertSingleLog(
   const slice = logEntries.slice(startIndex);
   const matches = slice.filter(
     (line) =>
-      !line.startsWith('[Codex][raw-event]') && line.includes(substring),
+      !line.startsWith("[Codex][raw-event]") &&
+      line.includes(substring),
   );
   assert.equal(
     matches.length,
@@ -228,7 +229,7 @@ async function main(): Promise<void> {
       "codex-cli-commit.v1",
     );
     assert.ok(Array.isArray(recordedArtifacts[0].rawEvents));
-    assertSingleLog("[Codex] exec commit", commitLogStart);
+    assertSingleLog("operation=commit", commitLogStart);
     assertSingleLog("commit entries=1", commitLogStart);
 
     queueDefaultFix(cliMock);
@@ -248,7 +249,7 @@ async function main(): Promise<void> {
     assert.equal(recordedArtifacts[1].kind, "fix");
     assert.equal(recordedArtifacts[1].schemaId, "codex-cli-fix.v1");
     assert.equal(recordedArtifacts[1].context.step, "tests");
-    assertSingleLog("[Codex] exec fix", fixLogStart);
+    assertSingleLog("operation=fix", fixLogStart);
     assertSingleLog("fixing src/app.ts", fixLogStart);
     assert(
       telemetryByName("codexCli.adoption").some(
@@ -283,7 +284,9 @@ async function main(): Promise<void> {
       "Expected fix stdin telemetry",
     );
     assert(
-      logEntries.some((entry) => entry.includes("prompt write completed")),
+      logEntries.some((entry) =>
+        entry.includes("prompt write completed"),
+      ),
       "Expected prompt write timing log",
     );
 
@@ -403,7 +406,7 @@ async function main(): Promise<void> {
         entry.includes("authentication required"),
       ),
     );
-    assertSingleLog("[Codex] exec commit", authLogStart);
+    assertSingleLog("operation=commit", authLogStart);
 
     cliMock.queueMissingBinary();
     const missingPriorFallbacks = fallbackEvents.length;
@@ -431,7 +434,7 @@ async function main(): Promise<void> {
     assert(
       logEntries.some((entry) => entry.includes("Install the CLI")),
     );
-    assertSingleLog("[Codex] exec commit", missingLogStart);
+    assertSingleLog("operation=commit", missingLogStart);
 
     cliMock.queueHandler((io: any) => {
       io.respond([
@@ -471,7 +474,7 @@ async function main(): Promise<void> {
       lastArtifact.error?.issues?.[0]?.path,
       "response.message",
     );
-    assertSingleLog("[Codex] exec commit", schemaLogStart);
+    assertSingleLog("operation=commit", schemaLogStart);
 
     codexTestUtils.resetCodexCompatibilityForTest?.();
     configStore["codex.binaryPath"] = "mock-codex-old";
@@ -501,7 +504,10 @@ async function main(): Promise<void> {
         event?.name === "codexCli.versionGuard" &&
         event?.properties?.outcome === "outdated",
     );
-    assert(guardTelemetry, "Expected telemetry event for guard failure");
+    assert(
+      guardTelemetry,
+      "Expected telemetry event for guard failure",
+    );
     assert.equal(
       cliMock.spawnInvocations.filter(
         (invocation: CliSpawnInvocation) =>
@@ -528,7 +534,8 @@ async function main(): Promise<void> {
       cliMock.spawnInvocations as CliSpawnInvocation[];
     const versionInvocations = spawnInvocations.filter(
       (invocation: CliSpawnInvocation) =>
-        invocation.args.length === 1 && invocation.args[0] === "--version",
+        invocation.args.length === 1 &&
+        invocation.args[0] === "--version",
     );
     assert.equal(
       versionInvocations.filter(
@@ -539,7 +546,8 @@ async function main(): Promise<void> {
       "Expected a single version probe for the default binary",
     );
     const execInvocation = spawnInvocations.find(
-      (invocation: CliSpawnInvocation) => invocation.args[0] === "exec",
+      (invocation: CliSpawnInvocation) =>
+        invocation.args[0] === "exec",
     );
     assert(execInvocation, "Expected Codex CLI exec invocation");
     const execArgs = execInvocation.args;
@@ -558,7 +566,8 @@ async function main(): Promise<void> {
       'reasoning.level="medium"',
     ]);
     const firstFixInvocation = spawnInvocations.find(
-      (invocation) => invocation.args[0] === "exec" && invocation.args[1] === "fix",
+      (invocation) =>
+        invocation.args[0] === "exec" && invocation.args[1] === "fix",
     );
     assert(firstFixInvocation, "Expected Codex CLI fix invocation");
     assert(

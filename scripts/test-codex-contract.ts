@@ -119,7 +119,9 @@ async function ensureFixtureExecutable(): Promise<void> {
   await fs.chmod(fixtureBinary, 0o755).catch(() => {});
 }
 
-async function readCodexRecord(recordPath: string): Promise<CodexCliRecord> {
+async function readCodexRecord(
+  recordPath: string,
+): Promise<CodexCliRecord> {
   const raw = await fs.readFile(recordPath, "utf8");
   return JSON.parse(raw) as CodexCliRecord;
 }
@@ -149,8 +151,8 @@ async function main(): Promise<void> {
     const telemetrySubscription = telemetryModule.onTelemetryEvent(
       (event: unknown) => telemetryEvents.push(event),
     );
-    const fallbackSubscription = onCodexOfflineFallback((event: unknown) =>
-      fallbackEvents.push(event),
+    const fallbackSubscription = onCodexOfflineFallback(
+      (event: unknown) => fallbackEvents.push(event),
     );
 
     __codexTestUtils?.resetCodexCompatibilityForTest?.();
@@ -165,12 +167,18 @@ async function main(): Promise<void> {
       process.env.CODEX_FAKE_BEHAVIOR = "auto";
 
       const artifactCountBefore = recordedArtifacts.length;
-      const telemetryAdoptionBefore = telemetryByName("codexCli.adoption").length;
-      const telemetryStdinBefore = telemetryByName("codexCli.stdinWrite").length;
+      const telemetryAdoptionBefore = telemetryByName(
+        "codexCli.adoption",
+      ).length;
+      const telemetryStdinBefore = telemetryByName(
+        "codexCli.stdinWrite",
+      ).length;
 
       const message = await generateCommitMessage(
         {
-          current: [{ message: "feat: contract test", file: "src/app.ts" }],
+          current: [
+            { message: "feat: contract test", file: "src/app.ts" },
+          ],
           meta: {},
         },
         {
@@ -183,10 +191,15 @@ async function main(): Promise<void> {
 
       assert.equal(message, "Commit: feat: contract test");
       const record = await readCodexRecord(recordPath);
-      assert.deepEqual(
-        record.argv.slice(0, 2),
-        ["exec", "commit"],
-        "CLI should invoke codex exec commit",
+      assert.equal(
+        record.argv[0],
+        "exec",
+        "CLI should invoke codex exec with positional command",
+      );
+      assert.equal(
+        record.argv[1],
+        "--json",
+        "CLI should enable JSON output flag immediately after exec",
       );
       const sandboxIndex = record.argv.indexOf("--sandbox");
       assert.notEqual(sandboxIndex, -1);
@@ -240,8 +253,12 @@ async function main(): Promise<void> {
       process.env.CODEX_FAKE_RECORD = recordPath;
 
       const artifactCountBefore = recordedArtifacts.length;
-      const telemetryAdoptionBefore = telemetryByName("codexCli.adoption").length;
-      const telemetryStdinBefore = telemetryByName("codexCli.stdinWrite").length;
+      const telemetryAdoptionBefore = telemetryByName(
+        "codexCli.adoption",
+      ).length;
+      const telemetryStdinBefore = telemetryByName(
+        "codexCli.stdinWrite",
+      ).length;
 
       const patch = await generateFix(
         {
@@ -321,7 +338,9 @@ async function main(): Promise<void> {
       assert(failureCaught, "Failure path should throw");
       assert(
         !logEntries.some((entry) =>
-          entry.includes("CLI provided a commit message before failing"),
+          entry.includes(
+            "CLI provided a commit message before failing",
+          ),
         ),
         "Heuristic fallback must not trigger",
       );

@@ -34,8 +34,14 @@ const outputLines = [];
 const configurationStore = new Map([
   ["format.command", "npm run format:fix"],
   ["typecheck.command", "node -e \"console.log('typecheck ok')\""],
-  ["tests.command", "git commit --dry-run --allow-empty --message \"Test Dry Run\""],
-  ["codex.extraArgs", "--prompt-file tmp/prompt.json --dry-run --profile prod"],
+  [
+    "tests.command",
+    'git commit --dry-run --allow-empty --message "Test Dry Run"',
+  ],
+  [
+    "codex.extraArgs",
+    "--prompt-file tmp/prompt.json --dry-run --profile prod",
+  ],
   ["codex.cliInvocationVersion", "new"],
 ]);
 
@@ -292,8 +298,7 @@ try {
     line.includes("[TESTS ⏭️]"),
   );
   assert.ok(
-    gitSkipLog &&
-      gitSkipLog.includes("Skipping git command"),
+    gitSkipLog && gitSkipLog.includes("Skipping git command"),
     "Dry run should skip potentially mutating git commands",
   );
 
