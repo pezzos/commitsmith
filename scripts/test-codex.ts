@@ -63,12 +63,21 @@ function queueDefaultCommit(
           typeof entry === "string" ? entry : (entry?.message ?? ""),
         )
       : [];
+    const message =
+      entries.length > 0 ? entries.join(", ") : "No journal entries";
     io.respond(
       [
         { type: "log", message: `commit entries=${entries.length}` },
         {
-          type: "result",
-          payload: { message: `Commit: ${entries.join(", ")}` },
+          type: "item.completed",
+          item: {
+            id: "commit-message",
+            type: "agent_message",
+            text: JSON.stringify({
+              message: `Commit: ${message}`,
+              meta: { style: "conventional" },
+            }),
+          },
         },
       ],
       { exitCode: 0 },

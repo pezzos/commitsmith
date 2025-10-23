@@ -103,8 +103,15 @@ process.stdin.on("end", () => {
       (Array.isArray(entries) && entries[0]?.message) || "no-entry";
     process.stdout.write(
       `${JSON.stringify({
-        type: "result",
-        payload: { message: `Commit: ${firstMessage}` },
+        type: "item.completed",
+        item: {
+          id: "commit-message",
+          type: "agent_message",
+          text: JSON.stringify({
+            message: `Commit: ${firstMessage}`,
+            meta: { style: "conventional" },
+          }),
+        },
       })}\n`,
     );
     process.exit(0);

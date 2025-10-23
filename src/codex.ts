@@ -71,12 +71,31 @@ export interface CodexOfflineFallbackEvent {
 type CodexOperation = "commit" | "fix";
 type CodexAdoptionEntrypoint = "commit" | "fix" | "diagnostics";
 
+interface CodexCliItem {
+  readonly id?: string;
+  readonly type?: string;
+  readonly text?: string;
+  readonly command?: string;
+  readonly status?: string;
+  readonly aggregated_output?: string;
+  readonly output_text?: string | string[];
+  readonly output?: unknown;
+}
+
 type CodexCliEvent<T> =
   | { type: "result"; payload: T }
   | { type: "log"; message?: string }
   | { type: "reasoning"; message?: string }
   | { type: "message"; message?: string }
-  | { type: "error"; message?: string };
+  | { type: "error"; message?: string }
+  | { type: "item.started"; item?: CodexCliItem }
+  | { type: "item.completed"; item?: CodexCliItem }
+  | { type: "thread.started"; thread_id?: string }
+  | {
+      type: "turn.started" | "turn.completed";
+      usage?: unknown;
+      [key: string]: unknown;
+    };
 
 interface CodexCliRequest {
   readonly model: string;
@@ -368,6 +387,13 @@ function extractCommitResultFromEvents(
         commitFromCommand = commandMessage;
       }
     }
+
+    if (event.type === "item.completed") {
+      const commit = coerceCommitResponseFromItem(event.item);
+      if (commit) {
+        return commit;
+      }
+    }
   }
 
   if (commitFromCommand) {
@@ -468,6 +494,114 @@ function safeParseCliEvent(raw: string): any | undefined {
   }
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseAgentMessageText(
+  text: string | undefined,
+): Record<string, unknown> | undefined {
+  if (!text) {
+    return undefined;
+  }
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    return isObjectRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function coerceCommitResponseFromAgentMessage(
+  parsed: Record<string, unknown>,
+): CommitResponse | undefined {
+  if (typeof parsed.message === "string") {
+    const message = parsed.message.trim();
+    if (message.length === 0) {
+      return undefined;
+    }
+    const meta = isObjectRecord(parsed.meta)
+      ? (parsed.meta as Record<string, unknown>)
+      : undefined;
+    return meta ? { message, meta } : { message };
+  }
+
+  const subject =
+    typeof parsed.subject === "string"
+      ? parsed.subject.trim()
+      : typeof parsed.title === "string"
+      ? parsed.title.trim()
+      : "";
+
+  let body = "";
+  if (typeof parsed.body === "string") {
+    body = parsed.body.trim();
+  } else if (Array.isArray(parsed.body)) {
+    body = parsed.body
+      .filter((entry) => typeof entry === "string")
+      .join("\n")
+      .trim();
+  } else if (Array.isArray(parsed.lines)) {
+    body = parsed.lines
+      .filter((entry) => typeof entry === "string")
+      .join("\n")
+      .trim();
+  }
+
+  if (subject.length === 0 && body.length === 0) {
+    return undefined;
+  }
+
+  const message =
+    body.length > 0 ? `${subject}\n\n${body}`.trim() : subject;
+  const meta = isObjectRecord(parsed.meta)
+    ? (parsed.meta as Record<string, unknown>)
+    : undefined;
+  return meta ? { message, meta } : { message };
+}
+
+function coerceCommitResponseFromItem(
+  item: CodexCliItem | undefined,
+): CommitResponse | undefined {
+  if (!item || item.type !== "agent_message") {
+    return undefined;
+  }
+  const parsed = parseAgentMessageText(item.text);
+  if (!parsed) {
+    if (typeof item.text === "string") {
+      const fallback = item.text.trim();
+      if (fallback.length > 0) {
+        return { message: fallback };
+      }
+    }
+    return undefined;
+  }
+  return coerceCommitResponseFromAgentMessage(parsed);
+}
+
+function coerceCliResultFromItem(
+  operation: CodexOperation,
+  item: CodexCliItem | undefined,
+): unknown | undefined {
+  if (!item) {
+    return undefined;
+  }
+
+  if (operation === "commit") {
+    return coerceCommitResponseFromItem(item);
+  }
+
+  if (item.type === "agent_message") {
+    return parseAgentMessageText(item.text) ?? item.text;
+  }
+
+  return undefined;
+}
+
 function extractCommitMessageFromCommand(
   command: string,
 ): string | undefined {
@@ -494,6 +628,7 @@ function extractCommitMessageFromCommand(
 
 interface CommitResponse {
   readonly message: string;
+  readonly meta?: Record<string, unknown>;
 }
 
 interface FixResponse {
@@ -1370,6 +1505,17 @@ async function runCodexCliImpl<T>(
           function handleCliEvent(event: CodexCliEvent<T>): void {
             if (event.type === "result") {
               resultPayload = event.payload;
+              return;
+            }
+
+            if (event.type === "item.completed") {
+              const coerced = coerceCliResultFromItem(
+                operation,
+                event.item,
+              );
+              if (typeof coerced !== "undefined") {
+                resultPayload = coerced as T;
+              }
               return;
             }
 
