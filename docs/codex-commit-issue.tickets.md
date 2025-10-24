@@ -227,7 +227,7 @@ Measure the impact of the new flow and validate that we maintain success rates w
 While implementing the ticket, if you notice that a future ticket needs improvement or a new ticket should be created, please take action.
 
 **Acceptance criteria**
-- Versioned telemetry payloads carry a schema version, differentiate legacy vs new/shadow invocation paths, and appear side-by-side in documented dashboards prior to rollout.
+- Versioned telemetry payloads carry a schema version, report `path=new`, and continue to appear in documented dashboards after the cleanup.
 - Staging verification checklist is scripted, executed, and signed off before production rollout.
 - Documentation, including inline updates to AGENTS.md, records metric definitions, dashboard locations, and staging verification steps.
 
@@ -240,8 +240,7 @@ While implementing the ticket, if you notice that a future ticket needs improvem
 **Context**
 Deploy the new invocation safely, communicate changes, and provide guidance for custom scripts.
 
-**Scope**
-- Implement the `commitSmith.codex.cliInvocationVersion` gate with shadow mode running legacy and new paths for at least one week.
+- Remove the `commitSmith.codex.cliInvocationVersion` gate and delete the unused legacy/shadow code paths.
 - Add automated comparisons for success rates, latency, and fallback frequency; prepare rollback checklist.
 - Publish a migration note covering the new CLI contract, minimum Codex version, and guidance for custom integrations.
 - Draft a communication plan for extension users.

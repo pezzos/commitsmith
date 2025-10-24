@@ -29,7 +29,7 @@
    - Trim redundant artifact uploads or repeated Codex calls, and capture before/after telemetry on Codex invocation counts and artifact upload time to demonstrate the reduction in redundant work.
 4. **Instrumentation & rollout**
    - Instrument the workflow entry/exit points to record pre-Codex prep vs Codex exec durations plus fast-lane adoption, and collect aggregate success/error counts for both invocation paths.
-   - Gate both legacy and new invocation paths behind `commitSmith.codex.cliInvocationVersion`. Run shadow mode for at least one week while comparing success rates, latency, and fallback frequency (Ticket 7 dashboards + shadow telemetry).
+  - Remove the legacy/shadow invocation gate and rely solely on the streaming path while monitoring success rates and latency (`workflow.codexInvocation` with `path=new`).
    - Publish a communication plan for extension users outlining the staged rollout, rollback steps, and expectations during the shadow period.
    - Expand documentation with a migration note covering the new CLI contract, minimum Codex version, and guidance for custom scripts that call `runCodexCli`.
    - Assign owners to audit diagnostics/fix flows for `--prompt-file` usage, recreate any prior `--dry-run` semantics inside CommitSmith (explicit no-op mode), and document the outcomes before deleting the legacy flags.

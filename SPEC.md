@@ -175,7 +175,6 @@ Expose and load user-defined settings from VS Code configuration.
 | `commitSmith.codex.model`               | string  | `"gpt-5-codex"`           | Model name             |
 | `commitSmith.codex.binaryPath`          | string  | `""`                      | Optional CLI path override |
 | `commitSmith.codex.extraArgs`           | string  | `""`                      | Extra CLI flags (space-separated) |
-| `commitSmith.codex.cliInvocationVersion` | string  | `"shadow"`                | Invocation strategy (`legacy`/`shadow`/`new`) |
 | `commitSmith.pipeline.abortOnFailure`   | boolean | `true`                    | Abort pipeline on failure |
 
 **Codex CLI requirements:** install the Codex CLI (see [docs.cursor.com/codex-cli/install](https://docs.cursor.com/codex-cli/install)), authenticate with `codex login`, and ensure the binary is available on `PATH` (or set `commitSmith.codex.binaryPath`). Use `commitSmith.codex.extraArgs` for environment-specific flags such as `--profile`.

@@ -1,20 +1,18 @@
 ## Codex CLI Invocation Rollout Plan
 
 ### Timeline
-- **Shadow week:** Enable `commitSmith.codex.cliInvocationVersion = "shadow"` for insiders. Collect telemetry daily comparing legacy vs new paths.
-- **Go/No-Go:** At the end of the shadow window, confirm success rate, latency, and fallback parity (Ticket 7 dashboards + `scripts/analyze-codex-shadow.mjs`).
-- **GA:** Flip managed settings to `"new"` only after parity is confirmed and rollback checklist is signed.
+- **Validation:** Run smoke tests in staging to confirm the streaming (`stdin`) invocation works with the current Codex CLI build.
+- **GA:** CommitSmith now ships only the streaming path; no feature flag or workspace setting remains.
 
 ### Telemetry Review
-- `workflow.codexInvocation` (paths `legacy`, `shadow`, `new`) for success/error/fallback counts.
-- `workflow.codexShadowComparison` for latency deltas and fallback differences.
-- CLI helper: `node scripts/analyze-codex-shadow.mjs <telemetry.jsonl>` to summarise parity locally.
+- `workflow.codexInvocation` (`path=new`) for success/error/fallback counts.
+- CLI helper: `node scripts/analyze-codex-shadow.mjs <telemetry.jsonl>` still works for historical comparisons but now only reports `new`.
 
 ### Rollback Checklist
-1. Set `commitSmith.codex.cliInvocationVersion = "legacy"` for affected workspaces.
-2. Verify legacy path telemetry returns to nominal success rate.
+1. Roll back the CommitSmith extension to the last version that still contained the legacy invocation code.
+2. Verify telemetry returns to nominal success rate after rollback.
 3. Notify extension users (template below) and log the reason/time of rollback.
-4. File follow-up issues and schedule another shadow period before retrying GA.
+4. File follow-up issues capturing root cause and remediation steps before retrying GA.
 
 ### Communication Plan
 - **Audience:** CommitSmith extension users and partner teams.
@@ -24,5 +22,5 @@
   - GA announcement after parity approval linking to the migration guide and rollback steps.
 - **Key Messages:**
   - Reminder to upgrade Codex CLI and remove deprecated flags (`--prompt-file`, `--dry-run`).
-  - Instructions for opting into/out of shadow mode via workspace settings.
+  - Clarify that no shadow/legacy toggle is available; fixes require an extension rollback.
   - Links: `docs/migrations/codex-cli-invocation.md` (contract/migration) & this rollout note.

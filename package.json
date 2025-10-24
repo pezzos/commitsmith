@@ -198,17 +198,6 @@
             "default": "",
             "description": "Optional MCP override passed as -c mcp_servers.serena=… when invoking the Codex CLI (e.g. '{command=\"/path/to/serena\",optional=true}').",
             "order": 90
-          },
-          "commitSmith.codex.cliInvocationVersion": {
-            "type": "string",
-            "enum": [
-              "legacy",
-              "shadow",
-              "new"
-            ],
-            "default": "shadow",
-            "description": "Select the Codex CLI invocation strategy. Shadow mode runs legacy and new paths side-by-side for telemetry before GA.",
-            "order": 95
           }
         }
       }

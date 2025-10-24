@@ -34,7 +34,6 @@ export interface CommitSmithConfig {
   readonly codexTimeoutMs: number;
   readonly codexSerenaTimeoutMs: number;
   readonly codexMcpWhitelist: readonly string[];
-  readonly codexInvocationVersion: InvocationVersion;
 }
 
 const DEFAULTS: CommitSmithConfig = {
@@ -60,7 +59,6 @@ const DEFAULTS: CommitSmithConfig = {
   codexTimeoutMs: 120_000,
   codexSerenaTimeoutMs: 180_000,
   codexMcpWhitelist: [],
-  codexInvocationVersion: "shadow",
 };
 
 const configChangeEmitter =
@@ -187,10 +185,6 @@ export function getConfig(): CommitSmithConfig {
         ...DEFAULTS.codexMcpWhitelist,
       ]),
     ),
-    codexInvocationVersion: coerceInvocationVersion(
-      settings.get<string>("codex.cliInvocationVersion"),
-      DEFAULTS.codexInvocationVersion,
-    ),
   };
 }
 
@@ -314,25 +308,4 @@ function parseSerenaOverride(
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-const INVOCATION_VERSIONS = ["legacy", "shadow", "new"] as const;
-export type InvocationVersion = (typeof INVOCATION_VERSIONS)[number];
-
-function coerceInvocationVersion(
-  value: string | undefined,
-  fallback: InvocationVersion,
-): InvocationVersion {
-  if (!value) {
-    return fallback;
-  }
-  if ((INVOCATION_VERSIONS as readonly string[]).includes(value)) {
-    return value as InvocationVersion;
-  }
-  console.warn(
-    `commitSmith.codex.cliInvocationVersion must be one of ${INVOCATION_VERSIONS.join(
-      ", ",
-    )}. Falling back to ${fallback}.`,
-  );
-  return fallback;
 }

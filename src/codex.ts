@@ -4,7 +4,6 @@ import {
   accessSync,
   constants as fsConstants,
   readFileSync,
-  promises as fsPromises,
 } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -12,7 +11,7 @@ import { performance } from "node:perf_hooks";
 import { Writable } from "node:stream";
 import * as vscode from "vscode";
 import { getConfig } from "./config";
-import type { CommitSmithConfig, InvocationVersion } from "./config";
+import type { CommitSmithConfig } from "./config";
 import { getOutputChannel } from "./output";
 import { JournalData } from "./journal";
 import type {
@@ -107,7 +106,7 @@ const offlineFallbackEmitter =
   new vscode.EventEmitter<CodexOfflineFallbackEvent>();
 export const onCodexOfflineFallback = offlineFallbackEmitter.event;
 
-type CodexInvocationPath = "legacy" | "new" | "shadow";
+type CodexInvocationPath = "new";
 type CodexInvocationOutcome = "success" | "error" | "fallback";
 
 export interface CodexInvocationMetrics {
@@ -152,7 +151,6 @@ export class CodexInvocationError extends Error {
 
 const CODEX_INVOCATION_SCHEMA_VERSION = 1;
 const CODEX_ARTIFACT_SCHEMA_VERSION = 1;
-const SHADOW_COMPARISON_SCHEMA_VERSION = 1;
 
 class CodexCliCompatibilityError extends Error {
   readonly version?: string;
@@ -976,7 +974,6 @@ function recordCodexAdoptionTelemetry(
 
 function recordCodexInvocationTelemetry(
   metrics: CodexInvocationMetrics,
-  invocationPathOverride?: CodexInvocationPath,
 ): void {
   recordTelemetry({
     name: "workflow.codexInvocation",
@@ -985,7 +982,7 @@ function recordCodexInvocationTelemetry(
     properties: {
       invocationId: metrics.id,
       operation: metrics.operation,
-      path: invocationPathOverride ?? metrics.path,
+      path: metrics.path,
       outcome: metrics.outcome,
       fallbackReason: metrics.fallbackReason ?? "none",
     },
@@ -1083,51 +1080,23 @@ export async function runCodexCli<T>(
   options?: RunCodexCliOptions,
 ): Promise<CodexInvocationResult<T>> {
   const config = getConfig();
-  const baseVersion = config.codexInvocationVersion;
-  const invocationPath = resolveInvocationPath(
-    baseVersion,
+  return runCodexCliImpl<T>(
     config,
-    options?.execution,
-  );
-  const result = await runCodexCliImpl<T>(
-    config,
-    invocationPath,
     operation,
     payload,
     options ?? {},
     true,
   );
-
-  if (baseVersion === "shadow") {
-    const comparisonOptions: RunCodexCliOptions | undefined = options
-      ? {
-          ...options,
-          onEvent: undefined,
-          execution: options.execution
-            ? { ...options.execution, log: undefined }
-            : undefined,
-        }
-      : undefined;
-    void runLegacyShadowComparison(
-      config,
-      operation,
-      payload,
-      comparisonOptions,
-      result.metrics,
-    );
-  }
-
-  return result;
 }
 
 async function runCodexCliImpl<T>(
   config: CommitSmithConfig,
-  invocationPath: CodexInvocationPath,
   operation: CodexOperation,
   payload: unknown,
   options: RunCodexCliOptions,
   showProgress: boolean,
 ): Promise<CodexInvocationResult<T>> {
+  const invocationPath: CodexInvocationPath = "new";
   const request: CodexCliRequest = {
     model: config.codexModel,
     operation,
@@ -1135,17 +1104,6 @@ async function runCodexCliImpl<T>(
   };
   const promptJson = JSON.stringify(request);
   const promptBytes = Buffer.byteLength(promptJson, "utf8");
-  const usePromptFile = invocationPath === "legacy";
-  let promptDir: string | undefined;
-  let promptFile: string | undefined;
-  if (usePromptFile) {
-    promptDir = await fsPromises.mkdtemp(
-      path.join(os.tmpdir(), "commit-smith-legacy-"),
-    );
-    promptFile = path.join(promptDir, `${operation}-prompt.json`);
-    await fsPromises.writeFile(promptFile, promptJson, "utf8");
-  }
-
   const invocationId = randomUUID();
   const startedAt = Date.now();
   const invocationStart = performance.now();
@@ -1154,16 +1112,11 @@ async function runCodexCliImpl<T>(
   let recordedMetrics: CodexInvocationMetrics | undefined;
   const effectiveOptions = options ?? {};
 
-  try {
-    const binary = resolveCodexBinary(config.codexBinaryPath);
-    const sandboxMode =
-      operation === "commit" ? "read-only" : "workspace-write";
-    const debugEvents = shouldDebugEvents();
-    const args = ["exec"];
-
-    if (usePromptFile) {
-      args.push(operation);
-    }
+  const binary = resolveCodexBinary(config.codexBinaryPath);
+  const sandboxMode =
+    operation === "commit" ? "read-only" : "workspace-write";
+  const debugEvents = shouldDebugEvents();
+  const args = ["exec"];
 
     args.push(
       "--json",
@@ -1173,10 +1126,6 @@ async function runCodexCliImpl<T>(
       config.codexModel,
       ...config.codexExtraArgs,
     );
-
-    if (usePromptFile && promptFile) {
-      args.push("--prompt-file", promptFile);
-    }
 
     if (config.codexSerenaOverride) {
       args.push(
@@ -1239,7 +1188,7 @@ async function runCodexCliImpl<T>(
           errorMessage: error?.message,
         };
         recordedMetrics = metrics;
-        recordCodexInvocationTelemetry(metrics, invocationPath);
+        recordCodexInvocationTelemetry(metrics);
         return metrics;
       };
 
@@ -1392,11 +1341,7 @@ async function runCodexCliImpl<T>(
           }
 
           const stdin = child.stdin;
-          if (usePromptFile) {
-            if (stdin) {
-              stdin.end();
-            }
-          } else if (stdin) {
+          if (stdin) {
             writePromptToStdin(stdin, promptJson)
               .then((metrics) => {
                 log(`[Codex] ${formatPromptWriteLog(metrics)}.`);
@@ -1566,104 +1511,9 @@ async function runCodexCliImpl<T>(
       );
     }
 
-    return runWithProgress({ report() {} } as vscode.Progress<{
-      message?: string;
-    }>);
-  } finally {
-    if (promptDir) {
-      await fsPromises.rm(promptDir, {
-        recursive: true,
-        force: true,
-      });
-    }
-  }
-}
-async function runLegacyShadowComparison<T>(
-  config: CommitSmithConfig,
-  operation: CodexOperation,
-  payload: unknown,
-  options: RunCodexCliOptions | undefined,
-  shadowMetrics: CodexInvocationMetrics,
-): Promise<void> {
-  try {
-    const legacyResult = await runCodexCliImpl(
-      config,
-      "legacy",
-      operation,
-      payload,
-      options ?? {},
-      false,
-    );
-    recordCodexShadowComparisonTelemetry(
-      shadowMetrics,
-      legacyResult.metrics,
-    );
-  } catch (error) {
-    const legacyMetrics =
-      error instanceof CodexInvocationError
-        ? error.metrics
-        : undefined;
-    recordCodexShadowComparisonTelemetry(
-      shadowMetrics,
-      legacyMetrics,
-      error instanceof Error ? error : undefined,
-    );
-  }
-}
-
-function resolveInvocationPath(
-  baseVersion: InvocationVersion,
-  config: CommitSmithConfig,
-  execution?: CodexExecutionOptions,
-): CodexInvocationPath {
-  if (execution?.invocationPath) {
-    return execution.invocationPath;
-  }
-
-  if (baseVersion === "legacy" || baseVersion === "shadow") {
-    return baseVersion;
-  }
-
-  const extraArgs = config.codexExtraArgs ?? [];
-  if (
-    extraArgs.some(
-      (arg) => arg.includes("legacy") || arg.includes("compat"),
-    )
-  ) {
-    return "legacy";
-  }
-  if (extraArgs.some((arg) => arg.includes("shadow"))) {
-    return "shadow";
-  }
-  return "new";
-}
-
-function recordCodexShadowComparisonTelemetry(
-  shadow: CodexInvocationMetrics,
-  legacy?: CodexInvocationMetrics,
-  error?: Error,
-): void {
-  recordTelemetry({
-    name: "workflow.codexShadowComparison",
-    schema: "workflow.codexShadowComparison",
-    schemaVersion: SHADOW_COMPARISON_SCHEMA_VERSION,
-    properties: {
-      shadowInvocationId: shadow.id,
-      legacyInvocationId: legacy?.id ?? "unknown",
-      shadowOutcome: shadow.outcome,
-      legacyOutcome: legacy?.outcome ?? "error",
-      shadowFallback: shadow.fallbackReason ?? "none",
-      legacyFallback: legacy?.fallbackReason ?? "unknown",
-      errorMessage: error?.message ?? "",
-    },
-    measurements: {
-      shadowDurationMs: Number(shadow.durationMs.toFixed(3)),
-      legacyDurationMs: Number((legacy?.durationMs ?? 0).toFixed(3)),
-      durationDeltaMs: Number(
-        ((legacy?.durationMs ?? 0) - shadow.durationMs).toFixed(3),
-      ),
-    },
-  });
+  return runWithProgress({ report() {} } as vscode.Progress<{
+    message?: string;
+  }>);
 }
 
 function processCliLines(

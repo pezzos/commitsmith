@@ -132,7 +132,6 @@ All options exposed via VS Code settings:
 | `commitSmith.jira.fromBranch`           | Extract ticket from branch             | `true`                  |
 | `commitSmith.codex.model`               | Codex model used                       | `gpt-5-codex`           |
 | `commitSmith.codex.extraArgs`           | Additional Codex CLI flags             | *(empty)*               |
-| `commitSmith.codex.cliInvocationVersion` | Codex invocation mode (`legacy`/`shadow`/`new`) | `shadow`               |
 | `commitSmith.pipeline.abortOnFailure`   | Stop pipeline when a step fails        | `true`                  |
 
 **Codex CLI prerequisites:** install the Codex CLI (`npm install -g codex` or download from [docs.cursor.com/codex-cli/install](https://docs.cursor.com/codex-cli/install)), ensure it’s on `PATH` (or configure `commitSmith.codex.binaryPath`), and authenticate with `codex login`. Optional flags (profiles, sandboxes) can be set via `commitSmith.codex.extraArgs`.

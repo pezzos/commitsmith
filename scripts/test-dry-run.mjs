@@ -42,7 +42,6 @@ const configurationStore = new Map([
     "codex.extraArgs",
     "--prompt-file tmp/prompt.json --dry-run --profile prod",
   ],
-  ["codex.cliInvocationVersion", "new"],
 ]);
 
 class EventEmitter {
@@ -197,11 +196,6 @@ try {
     config.codexExtraArgs,
     ["--profile", "prod"],
     "Deprecated Codex CLI flags should be stripped from extraArgs",
-  );
-  assert.equal(
-    config.codexInvocationVersion,
-    "new",
-    "Shadow rollout gate should default to new in this test",
   );
 
   assert.equal(
