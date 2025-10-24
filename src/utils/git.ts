@@ -220,9 +220,11 @@ async function resolveRepository(): Promise<
   const repo = gitApi.activeRepository ?? gitApi.repositories[0];
   const summary = `[git] resolveRepository -> active=${
     gitApi.activeRepository?.rootUri.fsPath ?? "none"
-  } repositories=${gitApi.repositories
-    .map((entry) => entry.rootUri.fsPath)
-    .join(",") || "[]"}`;
+  } repositories=${
+    gitApi.repositories
+      .map((entry) => entry.rootUri.fsPath)
+      .join(",") || "[]"
+  }`;
   if (lastResolveSummaryLogged !== summary) {
     logInfo(summary);
     lastResolveSummaryLogged = summary;

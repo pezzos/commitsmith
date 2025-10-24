@@ -8,7 +8,7 @@ import {
 
 function printHelp(): void {
   console.log(
-    'Usage: commit-smith journal --append "<message>" [--file path/to/file] [--meta key=value ...]',
+    'Usage: commit-smith journal --append "<message>" --file path/to/file [--file another/file ...] [--meta key=value ...]',
   );
   console.log(
     "Appends a new entry to the AI commit journal managed by CommitSmith and optionally updates metadata.",
@@ -35,13 +35,12 @@ async function handleJournalCommand(
   }
 
   const metaUpdates = parseMetaUpdates(args);
-  const filePath = parseFileFlag(args);
+  const filePaths = parseFileFlags(args);
 
   await initializeJournal(options);
-  await addEntry(
-    filePath ? { file: filePath, message: entry } : entry,
-    options,
-  );
+  for (const filePath of filePaths) {
+    await addEntry({ file: filePath, message: entry }, options);
+  }
   if (Object.keys(metaUpdates).length > 0) {
     await updateJournalMeta(metaUpdates, options);
   }
@@ -144,18 +143,25 @@ function coerceMetaValue(raw: string): unknown {
   return trimmed;
 }
 
-function parseFileFlag(args: string[]): string | undefined {
-  const fileIndex = args.indexOf("--file");
-  if (fileIndex === -1) {
-    return undefined;
+function parseFileFlags(args: string[]): string[] {
+  const files: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] !== "--file") {
+      continue;
+    }
+    const value = args[i + 1];
+    if (!value) {
+      throw new Error("Missing file path after --file.");
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      throw new Error("File path after --file must be non-empty.");
+    }
+    files.push(trimmed);
+    i += 1;
   }
-  const value = args[fileIndex + 1];
-  if (!value) {
-    throw new Error("Missing file path after --file.");
+  if (files.length === 0) {
+    throw new Error("Missing --file argument. Provide at least one file path.");
   }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    throw new Error("File path after --file must be non-empty.");
-  }
-  return trimmed;
+  return files;
 }

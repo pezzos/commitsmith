@@ -492,7 +492,9 @@ function safeParseCliEvent(raw: string): any | undefined {
   }
 }
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
+function isObjectRecord(
+  value: unknown,
+): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
@@ -532,8 +534,8 @@ function coerceCommitResponseFromAgentMessage(
     typeof parsed.subject === "string"
       ? parsed.subject.trim()
       : typeof parsed.title === "string"
-      ? parsed.title.trim()
-      : "";
+        ? parsed.title.trim()
+        : "";
 
   let body = "";
   if (typeof parsed.body === "string") {
@@ -1118,398 +1120,390 @@ async function runCodexCliImpl<T>(
   const debugEvents = shouldDebugEvents();
   const args = ["exec"];
 
+  args.push(
+    "--json",
+    "--sandbox",
+    sandboxMode,
+    "--model",
+    config.codexModel,
+    ...config.codexExtraArgs,
+  );
+
+  if (config.codexSerenaOverride) {
     args.push(
-      "--json",
-      "--sandbox",
-      sandboxMode,
-      "--model",
-      config.codexModel,
-      ...config.codexExtraArgs,
+      "-c",
+      `mcp_servers.serena=${config.codexSerenaOverride}`,
     );
+  }
 
-    if (config.codexSerenaOverride) {
-      args.push(
-        "-c",
-        `mcp_servers.serena=${config.codexSerenaOverride}`,
-      );
-    }
+  const mcpOverrides = getMcpOverrideArgs(config);
+  if (mcpOverrides.length > 0) {
+    args.push(...mcpOverrides);
+  }
 
-    const mcpOverrides = getMcpOverrideArgs(config);
-    if (mcpOverrides.length > 0) {
-      args.push(...mcpOverrides);
-    }
-
-    const hasReasoningOverride = config.codexExtraArgs.some((arg) =>
-      arg.includes("reasoning.level"),
+  const hasReasoningOverride = config.codexExtraArgs.some((arg) =>
+    arg.includes("reasoning.level"),
+  );
+  if (!hasReasoningOverride) {
+    args.push(
+      "-c",
+      `reasoning.level="${config.codexReasoningLevel}"`,
     );
-    if (!hasReasoningOverride) {
-      args.push(
-        "-c",
-        `reasoning.level="${config.codexReasoningLevel}"`,
-      );
-    }
+  }
 
-    if (effectiveOptions.execution?.skipGitRepoCheck) {
-      args.push("--skip-git-repo-check");
-    }
+  // CommitSmith always runs Codex inside a Git workspace; avoid --skip-git-repo-check to keep parity with the CLI defaults.
+  log(
+    `[Codex] exec binary=${binary} model=${config.codexModel} operation=${operation} path=${invocationPath}`,
+  );
+  log(`[Codex] args ${JSON.stringify(args)}`);
 
-    log(
-      `[Codex] exec binary=${binary} model=${config.codexModel} operation=${operation} path=${invocationPath}`,
-    );
-    log(`[Codex] args ${JSON.stringify(args)}`);
+  const progressTitle =
+    operation === "fix"
+      ? "CommitSmith Codex: applying automated fix"
+      : "CommitSmith Codex: generating commit message";
 
-    const progressTitle =
-      operation === "fix"
-        ? "CommitSmith Codex: applying automated fix"
-        : "CommitSmith Codex: generating commit message";
-
-    const runWithProgress = async (
-      progress: vscode.Progress<{ message?: string }>,
-    ): Promise<CodexInvocationResult<T>> => {
-      progress.report({ message: "Contacting Codex CLI…" });
-      const finalize = (
-        outcome: CodexInvocationOutcome,
-        error?: Error,
-      ): CodexInvocationMetrics => {
-        if (telemetryFinalized && recordedMetrics) {
-          return recordedMetrics;
-        }
-        telemetryFinalized = true;
-        const durationMs = performance.now() - invocationStart;
-        const metrics: CodexInvocationMetrics = {
-          id: invocationId,
-          operation,
-          path: invocationPath,
-          durationMs,
-          startedAt,
-          promptBytes,
-          outcome,
-          fallbackReason,
-          errorMessage: error?.message,
-        };
-        recordedMetrics = metrics;
-        recordCodexInvocationTelemetry(metrics);
-        return metrics;
-      };
-
-      const rejectWithTelemetry = (
-        reject: (reason?: unknown) => void,
-        error: Error,
-      ): void => {
-        const metrics = finalize(
-          fallbackReason ? "fallback" : "error",
-          error,
-        );
-        const invocationError = new CodexInvocationError(
-          error.message,
-          metrics,
-          error,
-        );
-        invocationError.stack = error.stack;
-        reject(invocationError);
-      };
-
-      try {
-        await ensureCodexCliSupportsStdin(binary);
-      } catch (error) {
-        const message =
-          (error as Error)?.message ??
-          "Codex CLI compatibility check failed.";
-        log(`[Codex] ${message}`);
-        progress.report({ message });
-        const errObject =
-          error instanceof Error ? error : new Error(String(error));
-        const metrics = finalize("error", errObject);
-        throw new CodexInvocationError(
-          errObject.message,
-          metrics,
-          errObject,
-        );
+  const runWithProgress = async (
+    progress: vscode.Progress<{ message?: string }>,
+  ): Promise<CodexInvocationResult<T>> => {
+    progress.report({ message: "Contacting Codex CLI…" });
+    const finalize = (
+      outcome: CodexInvocationOutcome,
+      error?: Error,
+    ): CodexInvocationMetrics => {
+      if (telemetryFinalized && recordedMetrics) {
+        return recordedMetrics;
       }
+      telemetryFinalized = true;
+      const durationMs = performance.now() - invocationStart;
+      const metrics: CodexInvocationMetrics = {
+        id: invocationId,
+        operation,
+        path: invocationPath,
+        durationMs,
+        startedAt,
+        promptBytes,
+        outcome,
+        fallbackReason,
+        errorMessage: error?.message,
+      };
+      recordedMetrics = metrics;
+      recordCodexInvocationTelemetry(metrics);
+      return metrics;
+    };
 
-      return new Promise<CodexInvocationResult<T>>(
-        (resolve, reject) => {
-          let stdoutBuffer = "";
-          let stderrBuffer = "";
-          const rawStdoutChunks: string[] = [];
-          const rawStderrChunks: string[] = [];
-          let resultPayload: T | undefined;
-          let cliError: Error | undefined;
-          let settled = false;
-          let didTimeout = false;
-          let emittedFallback = false;
-          let loggedCliOutput = false;
+    const rejectWithTelemetry = (
+      reject: (reason?: unknown) => void,
+      error: Error,
+    ): void => {
+      const metrics = finalize(
+        fallbackReason ? "fallback" : "error",
+        error,
+      );
+      const invocationError = new CodexInvocationError(
+        error.message,
+        metrics,
+        error,
+      );
+      invocationError.stack = error.stack;
+      reject(invocationError);
+    };
 
-          const emitCliLine = (line: string) => {
-            effectiveOptions.onEvent?.(line);
-            if (debugEvents) {
-              logRawEvent(line);
-            }
-            try {
-              const event = JSON.parse(line) as CodexCliEvent<T>;
-              handleCliEvent(event);
-            } catch (error) {
-              log(`[Codex] Received malformed CLI event: ${line}`);
-              progress.report({ message: line });
-            }
-          };
+    try {
+      await ensureCodexCliSupportsStdin(binary);
+    } catch (error) {
+      const message =
+        (error as Error)?.message ??
+        "Codex CLI compatibility check failed.";
+      log(`[Codex] ${message}`);
+      progress.report({ message });
+      const errObject =
+        error instanceof Error ? error : new Error(String(error));
+      const metrics = finalize("error", errObject);
+      throw new CodexInvocationError(
+        errObject.message,
+        metrics,
+        errObject,
+      );
+    }
 
-          const logCliFailureOutputOnce = () => {
-            if (loggedCliOutput) {
-              return;
-            }
-            loggedCliOutput = true;
-            const stdoutText =
-              rawStdoutChunks.join("") || stdoutBuffer;
-            const stderrText =
-              rawStderrChunks.join("") || stderrBuffer;
-            logMultilineBlock(
-              "CLI stdout",
-              stdoutText,
-              MAX_CLI_LOG_LENGTH,
-            );
-            logMultilineBlock(
-              "CLI stderr",
-              stderrText,
-              MAX_CLI_LOG_LENGTH,
-            );
-          };
+    return new Promise<CodexInvocationResult<T>>(
+      (resolve, reject) => {
+        let stdoutBuffer = "";
+        let stderrBuffer = "";
+        const rawStdoutChunks: string[] = [];
+        const rawStderrChunks: string[] = [];
+        let resultPayload: T | undefined;
+        let cliError: Error | undefined;
+        let settled = false;
+        let didTimeout = false;
+        let emittedFallback = false;
+        let loggedCliOutput = false;
 
-          const child = spawn(binary, args, {
-            stdio: ["pipe", "pipe", "pipe"],
-            env: { ...process.env },
-            cwd:
-              effectiveOptions.execution?.workingDirectory ??
-              process.cwd(),
-            windowsHide: true,
+        const emitCliLine = (line: string) => {
+          effectiveOptions.onEvent?.(line);
+          if (debugEvents) {
+            logRawEvent(line);
+          }
+          try {
+            const event = JSON.parse(line) as CodexCliEvent<T>;
+            handleCliEvent(event);
+          } catch (error) {
+            log(`[Codex] Received malformed CLI event: ${line}`);
+            progress.report({ message: line });
+          }
+        };
+
+        const logCliFailureOutputOnce = () => {
+          if (loggedCliOutput) {
+            return;
+          }
+          loggedCliOutput = true;
+          const stdoutText = rawStdoutChunks.join("") || stdoutBuffer;
+          const stderrText = rawStderrChunks.join("") || stderrBuffer;
+          logMultilineBlock(
+            "CLI stdout",
+            stdoutText,
+            MAX_CLI_LOG_LENGTH,
+          );
+          logMultilineBlock(
+            "CLI stderr",
+            stderrText,
+            MAX_CLI_LOG_LENGTH,
+          );
+        };
+
+        const child = spawn(binary, args, {
+          stdio: ["pipe", "pipe", "pipe"],
+          env: { ...process.env },
+          cwd:
+            effectiveOptions.execution?.workingDirectory ??
+            process.cwd(),
+          windowsHide: true,
+        });
+
+        const timeoutMs = selectCodexTimeout(config);
+
+        const timeoutHandle = setTimeout(() => {
+          if (settled) {
+            return;
+          }
+          didTimeout = true;
+          progress.report({
+            message: "Codex CLI timed out – cancelling request…",
           });
+          child.kill();
+        }, timeoutMs);
 
-          const timeoutMs = selectCodexTimeout(config);
+        child.on("error", (error: NodeJS.ErrnoException) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearTimeout(timeoutHandle);
+          const enriched =
+            error.code === "ENOENT"
+              ? new Error(
+                  `Codex CLI binary "${binary}" was not found on PATH.`,
+                )
+              : error;
+          if (error.code === "ENOENT") {
+            logCliGuidance("missing-binary");
+          }
+          logCliFailureOutputOnce();
+          emitFallbackOnce("network", enriched);
+          progress.report({ message: enriched.message });
+          rejectWithTelemetry(reject, enriched);
+        });
 
-          const timeoutHandle = setTimeout(() => {
-            if (settled) {
-              return;
-            }
-            didTimeout = true;
-            progress.report({
-              message: "Codex CLI timed out – cancelling request…",
+        const stdout = child.stdout;
+        if (stdout) {
+          stdout.setEncoding("utf8");
+          stdout.on("data", (chunk: string) => {
+            rawStdoutChunks.push(chunk);
+            stdoutBuffer += chunk;
+            stdoutBuffer = processCliLines(stdoutBuffer, emitCliLine);
+          });
+        }
+
+        const stderr = child.stderr;
+        if (stderr) {
+          stderr.setEncoding("utf8");
+          stderr.on("data", (chunk: string) => {
+            rawStderrChunks.push(chunk);
+            stderrBuffer += chunk;
+          });
+        }
+
+        const stdin = child.stdin;
+        if (stdin) {
+          writePromptToStdin(stdin, promptJson)
+            .then((metrics) => {
+              log(`[Codex] ${formatPromptWriteLog(metrics)}.`);
+              recordPromptWriteTelemetry(operation, metrics);
+            })
+            .catch((error) => {
+              if (settled) {
+                return;
+              }
+              cliError =
+                error instanceof Error
+                  ? error
+                  : new Error(String(error));
+              log(
+                `[Codex] Failed to write prompt: ${cliError.message}`,
+              );
+              progress.report({ message: cliError.message });
+              try {
+                child.kill();
+              } catch {
+                // ignore – process may already be terminating
+              }
             });
+        } else {
+          const error = new Error(
+            "Codex CLI stdin is not available; cannot send prompt.",
+          );
+          cliError = error;
+          log(`[Codex] ${error.message}`);
+          progress.report({ message: error.message });
+          try {
             child.kill();
-          }, timeoutMs);
+          } catch {
+            // ignore
+          }
+        }
 
-          child.on("error", (error: NodeJS.ErrnoException) => {
-            if (settled) {
-              return;
-            }
-            settled = true;
-            clearTimeout(timeoutHandle);
-            const enriched =
-              error.code === "ENOENT"
-                ? new Error(
-                    `Codex CLI binary "${binary}" was not found on PATH.`,
-                  )
-                : error;
-            if (error.code === "ENOENT") {
+        child.on("close", (code) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearTimeout(timeoutHandle);
+
+          if (stdoutBuffer.trim().length > 0) {
+            stdoutBuffer = processCliLines(
+              `${stdoutBuffer}
+`,
+              emitCliLine,
+            );
+          }
+
+          if (didTimeout) {
+            const timeoutError = new Error(
+              `Codex CLI timed out after ${timeoutMs}ms`,
+            );
+            logCliFailureOutputOnce();
+            emitFallbackOnce("timeout", timeoutError);
+            progress.report({ message: timeoutError.message });
+            return rejectWithTelemetry(reject, timeoutError);
+          }
+
+          if (cliError) {
+            logCliFailureOutputOnce();
+            emitFallbackOnce("network", cliError);
+            progress.report({ message: cliError.message });
+            return rejectWithTelemetry(reject, cliError);
+          }
+
+          if (code !== 0) {
+            const stderrText = stderrBuffer.trim();
+            const error = new Error(
+              stderrText
+                ? `Codex CLI failed: ${stderrText}`
+                : `Codex CLI exited with code ${code}`,
+            );
+            if (stderrText && looksLikeAuthError(stderrText)) {
+              logCliGuidance("auth");
+            } else if (
+              stderrText &&
+              looksLikeMissingBinary(stderrText)
+            ) {
               logCliGuidance("missing-binary");
             }
             logCliFailureOutputOnce();
-            emitFallbackOnce("network", enriched);
-            progress.report({ message: enriched.message });
-            rejectWithTelemetry(reject, enriched);
-          });
-
-          const stdout = child.stdout;
-          if (stdout) {
-            stdout.setEncoding("utf8");
-            stdout.on("data", (chunk: string) => {
-              rawStdoutChunks.push(chunk);
-              stdoutBuffer += chunk;
-              stdoutBuffer = processCliLines(
-                stdoutBuffer,
-                emitCliLine,
-              );
-            });
-          }
-
-          const stderr = child.stderr;
-          if (stderr) {
-            stderr.setEncoding("utf8");
-            stderr.on("data", (chunk: string) => {
-              rawStderrChunks.push(chunk);
-              stderrBuffer += chunk;
-            });
-          }
-
-          const stdin = child.stdin;
-          if (stdin) {
-            writePromptToStdin(stdin, promptJson)
-              .then((metrics) => {
-                log(`[Codex] ${formatPromptWriteLog(metrics)}.`);
-                recordPromptWriteTelemetry(operation, metrics);
-              })
-              .catch((error) => {
-                if (settled) {
-                  return;
-                }
-                cliError =
-                  error instanceof Error
-                    ? error
-                    : new Error(String(error));
-                log(
-                  `[Codex] Failed to write prompt: ${cliError.message}`,
-                );
-                progress.report({ message: cliError.message });
-                try {
-                  child.kill();
-                } catch {
-                  // ignore – process may already be terminating
-                }
-              });
-          } else {
-            const error = new Error(
-              "Codex CLI stdin is not available; cannot send prompt.",
-            );
-            cliError = error;
-            log(`[Codex] ${error.message}`);
+            emitFallbackOnce("network", error);
             progress.report({ message: error.message });
-            try {
-              child.kill();
-            } catch {
-              // ignore
-            }
+            return rejectWithTelemetry(reject, error);
           }
 
-          child.on("close", (code) => {
-            if (settled) {
-              return;
-            }
-            settled = true;
-            clearTimeout(timeoutHandle);
-
-            if (stdoutBuffer.trim().length > 0) {
-              stdoutBuffer = processCliLines(
-                `${stdoutBuffer}
-`,
-                emitCliLine,
-              );
-            }
-
-            if (didTimeout) {
-              const timeoutError = new Error(
-                `Codex CLI timed out after ${timeoutMs}ms`,
-              );
-              logCliFailureOutputOnce();
-              emitFallbackOnce("timeout", timeoutError);
-              progress.report({ message: timeoutError.message });
-              return rejectWithTelemetry(reject, timeoutError);
-            }
-
-            if (cliError) {
-              logCliFailureOutputOnce();
-              emitFallbackOnce("network", cliError);
-              progress.report({ message: cliError.message });
-              return rejectWithTelemetry(reject, cliError);
-            }
-
-            if (code !== 0) {
-              const stderrText = stderrBuffer.trim();
-              const error = new Error(
-                stderrText
-                  ? `Codex CLI failed: ${stderrText}`
-                  : `Codex CLI exited with code ${code}`,
-              );
-              if (stderrText && looksLikeAuthError(stderrText)) {
-                logCliGuidance("auth");
-              } else if (
-                stderrText &&
-                looksLikeMissingBinary(stderrText)
-              ) {
-                logCliGuidance("missing-binary");
-              }
-              logCliFailureOutputOnce();
-              emitFallbackOnce("network", error);
-              progress.report({ message: error.message });
-              return rejectWithTelemetry(reject, error);
-            }
-
-            if (typeof resultPayload === "undefined") {
-              const error = new Error(
-                "Codex CLI did not return a result payload.",
-              );
-              logCliFailureOutputOnce();
-              emitFallbackOnce("network", error);
-              progress.report({ message: error.message });
-              return rejectWithTelemetry(reject, error);
-            }
-
-            progress.report({ message: "Codex response received." });
-            const metrics = finalize("success");
-            resolve({ payload: resultPayload, metrics });
-          });
-
-          function handleCliEvent(event: CodexCliEvent<T>): void {
-            if (event.type === "result") {
-              resultPayload = event.payload;
-              return;
-            }
-
-            if (event.type === "item.completed") {
-              const coerced = coerceCliResultFromItem(
-                operation,
-                event.item,
-              );
-              if (typeof coerced !== "undefined") {
-                resultPayload = coerced as T;
-              }
-              return;
-            }
-
-            if (event.type === "error") {
-              cliError = new Error(
-                event.message ?? "Codex CLI reported an error event.",
-              );
-              progress.report({ message: cliError.message });
-              return;
-            }
-
-            if (
-              event.type === "log" ||
-              event.type === "reasoning" ||
-              event.type === "message"
-            ) {
-              if (event.message) {
-                log(`[Codex] ${event.message}`);
-                progress.report({ message: event.message });
-              }
-            }
+          if (typeof resultPayload === "undefined") {
+            const error = new Error(
+              "Codex CLI did not return a result payload.",
+            );
+            logCliFailureOutputOnce();
+            emitFallbackOnce("network", error);
+            progress.report({ message: error.message });
+            return rejectWithTelemetry(reject, error);
           }
 
-          function emitFallbackOnce(
-            reason: CodexOfflineFallbackReason,
-            error: Error,
-          ): void {
-            if (!emittedFallback) {
-              emittedFallback = true;
-              fallbackReason = reason;
-              offlineFallbackEmitter.fire({ reason, error });
-              log(`[Codex] Request failed: ${error.message}`);
-              progress.report({ message: error.message });
+          progress.report({ message: "Codex response received." });
+          const metrics = finalize("success");
+          resolve({ payload: resultPayload, metrics });
+        });
+
+        function handleCliEvent(event: CodexCliEvent<T>): void {
+          if (event.type === "result") {
+            resultPayload = event.payload;
+            return;
+          }
+
+          if (event.type === "item.completed") {
+            const coerced = coerceCliResultFromItem(
+              operation,
+              event.item,
+            );
+            if (typeof coerced !== "undefined") {
+              resultPayload = coerced as T;
+            }
+            return;
+          }
+
+          if (event.type === "error") {
+            cliError = new Error(
+              event.message ?? "Codex CLI reported an error event.",
+            );
+            progress.report({ message: cliError.message });
+            return;
+          }
+
+          if (
+            event.type === "log" ||
+            event.type === "reasoning" ||
+            event.type === "message"
+          ) {
+            if (event.message) {
+              log(`[Codex] ${event.message}`);
+              progress.report({ message: event.message });
             }
           }
-        },
-      );
-    };
+        }
 
-    if (showProgress) {
-      return vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: progressTitle,
-          cancellable: false,
-        },
-        (progress) => runWithProgress(progress),
-      );
-    }
+        function emitFallbackOnce(
+          reason: CodexOfflineFallbackReason,
+          error: Error,
+        ): void {
+          if (!emittedFallback) {
+            emittedFallback = true;
+            fallbackReason = reason;
+            offlineFallbackEmitter.fire({ reason, error });
+            log(`[Codex] Request failed: ${error.message}`);
+            progress.report({ message: error.message });
+          }
+        }
+      },
+    );
+  };
+
+  if (showProgress) {
+    return vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: progressTitle,
+        cancellable: false,
+      },
+      (progress) => runWithProgress(progress),
+    );
+  }
 
   return runWithProgress({ report() {} } as vscode.Progress<{
     message?: string;

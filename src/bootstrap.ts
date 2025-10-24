@@ -84,7 +84,7 @@ export async function executeCodexBootstrap(
   terminal.show(true);
 
   const prompt =
-    'Read AGENTS.md and adopt the "CommitSmith Journal Workflow" guidance. Confirm you will run `commit-smith journal --append "<entry>"` (with any needed `--meta key=value` flags to keep scope, ticket, ticketFromBranch, and style up to date) after every task and rerun `CommitSmith: Initialize CommitSmith` if the journal, .gitignore entry, or guidance are missing. Reply ACKNOWLEDGED when ready.';
+    'Read AGENTS.md and adopt the "CommitSmith Journal Workflow" guidance. Confirm you will run `commit-smith journal --append "<entry>" --file path/to/file` (repeat `--file` for each impacted path and add any needed `--meta key=value` flags to keep scope, ticket, ticketFromBranch, and style up to date) after every task and rerun `CommitSmith: Initialize CommitSmith` if the journal, .gitignore entry, or guidance are missing. Reply ACKNOWLEDGED when ready.';
   const command = `codex --cd ${shellQuote(repoRoot)} -p ${shellQuote(prompt)}`;
   terminal.sendText(command, true);
 

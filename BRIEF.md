@@ -59,10 +59,10 @@ When you hit the **AI Commit** button, CommitSmith:
     scope: jobs-service
     style: conventional
   ```
-* Codex updates it after each task via the extension-provided CLI helper (CommitSmith never self-appends):
+* Codex updates it after each task via the extension-provided CLI helper (CommitSmith never self-appends). Include at least one `--file <path>` flag per entry (repeat for every impacted file):
 
   ```
-  commit-smith journal --append "refactor: split job runner into scheduler/worker/utils" --meta scope=jobs-service --meta ticket=T1335
+  commit-smith journal --append "refactor: split job runner into scheduler/worker/utils" --file src/jobs/scheduler.ts --file src/jobs/worker.ts --meta scope=jobs-service --meta ticket=T1335
   ```
 * CommitSmith reads and clears it upon successful commit.
 

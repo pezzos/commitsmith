@@ -14,7 +14,6 @@ import {
 export interface CodexExecutionOptions {
   readonly recordArtifact?: CodexCliArtifactRecorder;
   readonly workingDirectory?: string;
-  readonly skipGitRepoCheck?: boolean;
   readonly log?: (message: string) => void;
 }
 

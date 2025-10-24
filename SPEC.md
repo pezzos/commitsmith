@@ -177,7 +177,7 @@ Expose and load user-defined settings from VS Code configuration.
 | `commitSmith.codex.extraArgs`           | string  | `""`                      | Extra CLI flags (space-separated) |
 | `commitSmith.pipeline.abortOnFailure`   | boolean | `true`                    | Abort pipeline on failure |
 
-**Codex CLI requirements:** install the Codex CLI (see [docs.cursor.com/codex-cli/install](https://docs.cursor.com/codex-cli/install)), authenticate with `codex login`, and ensure the binary is available on `PATH` (or set `commitSmith.codex.binaryPath`). Use `commitSmith.codex.extraArgs` for environment-specific flags such as `--profile`.
+**Codex CLI requirements:** install the Codex CLI (see [docs.cursor.com/codex-cli/install](https://docs.cursor.com/codex-cli/install)), authenticate with `codex login`, and ensure the binary is available on `PATH` (or set `commitSmith.codex.binaryPath`). Use `commitSmith.codex.extraArgs` for environment-specific flags such as `--profile`. CommitSmith always runs Codex inside a Git repository, so we intentionally avoid the undocumented `--skip-git-repo-check` flag to keep parity with upstream defaults.
 
 **API:**
 
