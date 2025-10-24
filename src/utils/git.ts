@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import { GitRepository } from "../types/git";
 import type { API as GitApi, GitExtension } from "./internal/git";
 import { getInitializationStatus } from "../initializer";
-import { getOutputChannel } from "../output";
+import { appendDebugLine, getOutputChannel } from "../output";
 
 let repositoryWarningShown = false;
 let initializationReminderShown = false;
@@ -198,6 +198,25 @@ export async function push(repo: GitRepository): Promise<void> {
   }
 }
 
+export async function listStagedFiles(
+  repoRoot: string,
+): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["diff", "--name-only", "--cached"],
+      { cwd: repoRoot, maxBuffer: 1024 * 512 },
+    );
+    return stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  } catch (error) {
+    logError("Failed to list staged files", error);
+    return [];
+  }
+}
+
 /**
  * Internal escape hatch for unit tests; do not use in production code.
  */
@@ -261,8 +280,7 @@ function logError(message: string, error?: unknown): void {
 }
 
 function logInfo(message: string): void {
-  const channel = getOutputChannel();
-  channel.appendLine(`[CommitSmith][git] ${message}`);
+  appendDebugLine(`[CommitSmith][git] ${message}`);
 }
 
 async function resolveRepositoryWithRetry(): Promise<

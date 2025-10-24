@@ -55,6 +55,7 @@ const configStore: StubWorkspaceConfig = {
   "codex.serenaOverride": "",
   "message.style": "conventional",
   "codex.mcpWhitelist": [],
+  "output.showDebug": true,
 };
 
 const originalLoad = (Module as any)._load;
@@ -174,7 +175,7 @@ async function main(): Promise<void> {
         "codexCli.stdinWrite",
       ).length;
 
-      const message = await generateCommitMessage(
+      const commitResult = await generateCommitMessage(
         {
           current: [
             { message: "feat: contract test", file: "src/app.ts" },
@@ -190,7 +191,7 @@ async function main(): Promise<void> {
       );
 
       assert.equal(
-        message,
+        commitResult.message,
         "feat: contract test\n\n- feat: contract test",
       );
       const record = await readCodexRecord(recordPath);

@@ -161,7 +161,9 @@ function parseFileFlags(args: string[]): string[] {
     i += 1;
   }
   if (files.length === 0) {
-    throw new Error("Missing --file argument. Provide at least one file path.");
+    throw new Error(
+      "Missing --file argument. Provide at least one file path.",
+    );
   }
   return files;
 }

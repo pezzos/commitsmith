@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import * as vscode from "vscode";
-import { OutputChannelLike } from "./output";
+import { OutputChannelLike, shouldShowDebugOutput } from "./output";
 
 const STATE_KEY_PREFIX = "commitSmith.codexBootstrap.";
 const TERMINAL_NAME = "CommitSmith Codex Onboarding";
@@ -34,9 +34,11 @@ export async function offerCodexBootstrap(
 
   const agentsExists = await hasAgentsGuidance(repoRoot);
   if (!agentsExists) {
-    outputChannel.appendLine(
-      "[INIT][codex] Skipping Codex onboarding prompt; AGENTS.md not found.",
-    );
+    if (shouldShowDebugOutput()) {
+      outputChannel.appendLine(
+        "[INIT][codex] Skipping Codex onboarding prompt; AGENTS.md not found.",
+      );
+    }
     return;
   }
 
@@ -74,9 +76,11 @@ export async function executeCodexBootstrap(
     vscode.window.showWarningMessage(
       "AGENTS.md is missing; run CommitSmith initialization first.",
     );
-    outputChannel.appendLine(
-      "[INIT][codex] Bootstrap skipped because AGENTS.md is missing.",
-    );
+    if (shouldShowDebugOutput()) {
+      outputChannel.appendLine(
+        "[INIT][codex] Bootstrap skipped because AGENTS.md is missing.",
+      );
+    }
     return;
   }
 
@@ -88,9 +92,11 @@ export async function executeCodexBootstrap(
   const command = `codex --cd ${shellQuote(repoRoot)} -p ${shellQuote(prompt)}`;
   terminal.sendText(command, true);
 
-  outputChannel.appendLine(
-    "[INIT][codex] Launched Codex onboarding prompt in the integrated terminal.",
-  );
+  if (shouldShowDebugOutput()) {
+    outputChannel.appendLine(
+      "[INIT][codex] Launched Codex onboarding prompt in the integrated terminal.",
+    );
+  }
   SESSION_PROMPTED_ROOTS.add(repoRoot);
   await context.workspaceState.update(key, "accepted");
 }

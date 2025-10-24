@@ -6,7 +6,7 @@ import {
   onDidChangeConfig,
   getConfig,
 } from "./config";
-import { getRepo } from "./utils/git";
+import { getRepo, listStagedFiles } from "./utils/git";
 import { forgeCommitFromJournal } from "./workflows/forgeCommit";
 import { performDryRun } from "./workflows/dryRun";
 import {
@@ -29,9 +29,11 @@ import {
   executeCodexBootstrap,
 } from "./bootstrap";
 import {
+  appendDebugLine,
   getOutputChannel,
   isVscodeOutputChannel,
   OutputChannelLike,
+  shouldShowDebugOutput,
 } from "./output";
 import { GitRepository } from "./types/git";
 import {
@@ -355,6 +357,7 @@ class PipelineCheckScheduler implements vscode.Disposable {
         `[CHECKS] Unable to show fast lane reminder: ${
           (error as Error).message
         }.`,
+        { debug: true },
       );
     }
     if (lane === "guarded") {
@@ -369,6 +372,7 @@ class PipelineCheckScheduler implements vscode.Disposable {
     if (existing) {
       this.log(
         `[CHECKS] ${STEP_DISPLAY_LABELS[step]} already running; skipping duplicate request (${reason}).`,
+        { debug: true },
       );
       return existing;
     }
@@ -384,6 +388,7 @@ class PipelineCheckScheduler implements vscode.Disposable {
     if (this.pendingAll) {
       this.log(
         `[CHECKS] Batch run already scheduled; coalescing request (${reason}).`,
+        { debug: true },
       );
       return this.pendingAll;
     }
@@ -467,7 +472,9 @@ class PipelineCheckScheduler implements vscode.Disposable {
       }
     }
     if (updated) {
-      this.log(`[CHECKS] Marked check results stale (${reason}).`);
+      this.log(`[CHECKS] Marked check results stale (${reason}).`, {
+        debug: true,
+      });
       this.renderSummary();
     }
   }
@@ -479,6 +486,7 @@ class PipelineCheckScheduler implements vscode.Disposable {
     terminal.sendText(manual.command, false);
     this.log(
       `[CHECKS] Prepared manual command for ${STEP_DISPLAY_LABELS[step]}: ${manual.command}`,
+      { debug: true },
     );
     void vscode.window.setStatusBarMessage(
       `CommitSmith manual command ready: ${manual.command}`,
@@ -551,6 +559,7 @@ class PipelineCheckScheduler implements vscode.Disposable {
   private async executeAll(reason: string): Promise<void> {
     this.log(
       `[CHECKS] Queuing formatter/typecheck/test (${reason}).`,
+      { debug: true },
     );
     for (const step of PIPELINE_STEPS) {
       await this.runStep(step, `batch: ${reason}`);
@@ -606,6 +615,10 @@ class PipelineCheckScheduler implements vscode.Disposable {
           onStepStart: () => {
             /* already handled */
           },
+        },
+        codexOptions: {
+          workingDirectory: repo.rootUri.fsPath,
+          log: (message) => this.outputChannel.appendLine(message),
         },
       });
       const success =
@@ -756,7 +769,10 @@ class PipelineCheckScheduler implements vscode.Disposable {
     return stdout;
   }
 
-  private log(message: string): void {
+  private log(message: string, options?: { debug?: boolean }): void {
+    if (options?.debug && !shouldShowDebugOutput()) {
+      return;
+    }
     this.outputChannel.appendLine(message);
   }
 }
@@ -795,7 +811,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(codexFallbackDisposable);
 
   const configSubscription = onDidChangeConfig((updated) => {
-    outputChannel.appendLine(
+    appendDebugLine(
       `[CONFIG] Updated pipeline configuration: ${JSON.stringify(updated)}`,
     );
   });
@@ -863,7 +879,17 @@ async function handleGenerateFromJournal(
 ): Promise<void> {
   try {
     const repo = await getRepo();
-    await initializeJournal({ root: repo.rootUri.fsPath });
+    const repoRoot = repo.rootUri.fsPath;
+    await initializeJournal({ root: repoRoot });
+
+    const stagedFiles = await listStagedFiles(repoRoot);
+    if (stagedFiles.length === 0) {
+      const message =
+        "CommitSmith can't forge a commit because no files are staged. Stage your changes and try again.";
+      outputChannel.appendLine(`[COMMIT ⚠️] ${message}`);
+      vscode.window.showWarningMessage(message);
+      return;
+    }
 
     const result = await vscode.window.withProgress(
       {

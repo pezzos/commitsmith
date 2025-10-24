@@ -1,5 +1,3 @@
-import { promisify } from "node:util";
-import { execFile } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import path from "node:path";
 import * as vscode from "vscode";
@@ -20,7 +18,8 @@ import {
   PipelineStepId,
   PipelineLane,
 } from "../pipeline";
-import { commit, push } from "../utils/git";
+import { commit, push, listStagedFiles } from "../utils/git";
+import { appendDebugLine } from "../output";
 import {
   generateCommitMessage,
   CodexInvocationError,
@@ -161,7 +160,7 @@ export async function forgeCommitFromJournal(
       options.log(
         `[OFFLINE ⚠️] Codex unavailable (${(error as Error).message ?? "unknown reason"}). Generated heuristic commit message.`,
       );
-      options.log(
+      appendDebugLine(
         "[Codex] CLI events have been written to the CommitSmith output channel for inspection.",
       );
       void vscode.window.showWarningMessage(
@@ -311,24 +310,6 @@ function formatStepLabel(step: PipelineStepId): string {
     tests: "TESTS",
   };
   return labels[step];
-}
-
-const execFileAsync = promisify(execFile);
-
-async function listStagedFiles(root: string): Promise<string[]> {
-  try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["diff", "--name-only", "--cached"],
-      { cwd: root },
-    );
-    return stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-  } catch {
-    return [];
-  }
 }
 
 function buildOfflineCommitMessage(stagedFiles: string[]): string {

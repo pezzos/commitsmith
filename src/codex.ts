@@ -12,7 +12,7 @@ import { Writable } from "node:stream";
 import * as vscode from "vscode";
 import { getConfig } from "./config";
 import type { CommitSmithConfig } from "./config";
-import { getOutputChannel } from "./output";
+import { appendDebugLine, getOutputChannel } from "./output";
 import { JournalData } from "./journal";
 import type {
   CodexExecutionOptions,
@@ -344,8 +344,9 @@ function logMultilineBlock(
     ? `${trimmed.slice(0, limit)}...(truncated)`
     : trimmed;
   const message = `[Codex] ${label} (${truncated ? "truncated" : "full"}):\n${body}`;
-  log(message);
-  forwardLog?.(message);
+  if (logDebug(message)) {
+    forwardLog?.(message);
+  }
 }
 
 function extractCommitResultFromEvents(
@@ -481,7 +482,7 @@ function shouldDebugEvents(): boolean {
 
 function logRawEvent(line: string): void {
   const timestamp = new Date().toISOString();
-  log(`[Codex][raw-event][${timestamp}] ${line}`);
+  logDebug(`[Codex][raw-event][${timestamp}] ${line}`);
 }
 
 function safeParseCliEvent(raw: string): any | undefined {
@@ -641,7 +642,8 @@ function validateUnifiedDiff(diff: unknown): asserts diff is string {
     throw new Error("Codex returned an empty diff.");
   }
 
-  const headerMatch = diff.match(
+  const trimmedDiff = stripLeadingDiffMetadata(diff);
+  const headerMatch = trimmedDiff.match(
     /^---\s+(?<from>\S+)\n\+\+\+\s+(?<to>\S+)/,
   );
   if (!headerMatch || !headerMatch.groups) {
@@ -663,6 +665,35 @@ function validateUnifiedDiff(diff: unknown): asserts diff is string {
       "Codex diff paths must not contain parent directory traversals or absolute paths.",
     );
   }
+}
+
+function stripLeadingDiffMetadata(diff: string): string {
+  const lines = diff.split(/\r?\n/);
+  let start = 0;
+  while (start < lines.length) {
+    const line = lines[start];
+    if (line.startsWith("--- ")) {
+      break;
+    }
+    if (
+      line.startsWith("diff --git ") ||
+      line.startsWith("index ") ||
+      line.startsWith("old mode ") ||
+      line.startsWith("new mode ") ||
+      line.startsWith("deleted file mode ") ||
+      line.startsWith("new file mode ") ||
+      line.startsWith("similarity index ") ||
+      line.startsWith("rename from ") ||
+      line.startsWith("rename to ") ||
+      line.trim().length === 0
+    ) {
+      start += 1;
+      continue;
+    }
+    break;
+  }
+
+  return lines.slice(start).join("\n");
 }
 
 function normalizeDiffPath(
@@ -688,6 +719,10 @@ function normalizeDiffPath(
 
 function log(message: string): void {
   getOutputChannel().appendLine(message);
+}
+
+function logDebug(message: string): boolean {
+  return appendDebugLine(message);
 }
 
 interface PromptWriteMetrics {
@@ -897,7 +932,7 @@ function performCodexCliCompatibilityCheck(
         return;
       }
 
-      log(
+      logDebug(
         `[Codex] CLI version ${version} validated for stdin support.`,
       );
       succeed(version);
@@ -1152,10 +1187,10 @@ async function runCodexCliImpl<T>(
   }
 
   // CommitSmith always runs Codex inside a Git workspace; avoid --skip-git-repo-check to keep parity with the CLI defaults.
-  log(
+  logDebug(
     `[Codex] exec binary=${binary} model=${config.codexModel} operation=${operation} path=${invocationPath}`,
   );
-  log(`[Codex] args ${JSON.stringify(args)}`);
+  logDebug(`[Codex] args ${JSON.stringify(args)}`);
 
   const progressTitle =
     operation === "fix"
@@ -1248,7 +1283,7 @@ async function runCodexCliImpl<T>(
             const event = JSON.parse(line) as CodexCliEvent<T>;
             handleCliEvent(event);
           } catch (error) {
-            log(`[Codex] Received malformed CLI event: ${line}`);
+            logDebug(`[Codex] Received malformed CLI event: ${line}`);
             progress.report({ message: line });
           }
         };
@@ -1338,7 +1373,7 @@ async function runCodexCliImpl<T>(
         if (stdin) {
           writePromptToStdin(stdin, promptJson)
             .then((metrics) => {
-              log(`[Codex] ${formatPromptWriteLog(metrics)}.`);
+              logDebug(`[Codex] ${formatPromptWriteLog(metrics)}.`);
               recordPromptWriteTelemetry(operation, metrics);
             })
             .catch((error) => {
@@ -1472,7 +1507,7 @@ async function runCodexCliImpl<T>(
             event.type === "message"
           ) {
             if (event.message) {
-              log(`[Codex] ${event.message}`);
+              logDebug(`[Codex] ${event.message}`);
               progress.report({ message: event.message });
             }
           }

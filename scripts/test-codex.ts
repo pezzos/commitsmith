@@ -28,6 +28,7 @@ const configStore: StubWorkspaceConfig = {
   "codex.model": "gpt-5-codex",
   "codex.reasoningLevel": "medium",
   "codex.binaryPath": "mock-codex",
+  "output.showDebug": true,
   "codex.extraArgs": "--profile tests",
   "codex.serenaOverride":
     '{command="serena-mock",args=["--project","/tmp/mock"],optional=true}',
@@ -214,7 +215,7 @@ async function main(): Promise<void> {
 
     queueDefaultCommit(cliMock);
     const commitLogStart = logEntries.length;
-    const message = await generateCommitMessage(
+    const commitResult = await generateCommitMessage(
       {
         current: [
           { message: "feat: add tests", file: "src/index.ts" },
@@ -223,7 +224,15 @@ async function main(): Promise<void> {
       },
       codexOptions,
     );
-    assert.equal(message, "feat: add tests\n\n- feat: add tests");
+    assert.equal(
+      commitResult.message,
+      "feat: add tests\n\n- feat: add tests",
+    );
+    assert.equal(commitResult.artifactRecorded, true);
+    assert.equal(typeof commitResult.artifactDurationMs, "number");
+    assert.ok(commitResult.invocation);
+    assert.equal(commitResult.invocation?.operation, "commit");
+    assert.equal(commitResult.invocation?.outcome, "success");
     assert.equal(cliMock.requests.length >= 1, true);
     assert.equal(
       cliMock.requests[0]?.payload?.schema,
@@ -334,7 +343,7 @@ async function main(): Promise<void> {
     );
     assert.match(createPatch.diff, /--- \/dev\/null/);
     assert.match(createPatch.diff, /\+\+\+ b\/src\/new-file.ts/);
-    assertSingleLog("[Codex] exec fix", createLogStart);
+    assertSingleLog("operation=fix", createLogStart);
     assertSingleLog("creating file", createLogStart);
 
     cliMock.queueHandler((io: any, request: CodexCliRequest) => {
@@ -575,13 +584,15 @@ async function main(): Promise<void> {
       "-c",
       'reasoning.level="medium"',
     ]);
-    const firstFixInvocation = spawnInvocations.find(
-      (invocation) =>
-        invocation.args[0] === "exec" && invocation.args[1] === "fix",
+    const fixRequest = cliMock.requests.find(
+      (request: any) => request?.operation === "fix",
     );
-    assert(firstFixInvocation, "Expected Codex CLI fix invocation");
+    assert(fixRequest, "Expected Codex CLI fix invocation payload");
+    const fixInvocation = spawnInvocations.find((invocation) =>
+      invocation.args.includes("workspace-write"),
+    );
     assert(
-      firstFixInvocation.args.includes("workspace-write"),
+      fixInvocation,
       "Fix invocation should request workspace-write sandbox mode",
     );
     assert(logEntries.length > 0);

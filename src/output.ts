@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 
+import { getConfig, onDidChangeConfig } from "./config";
+
 export const OUTPUT_CHANNEL_NAME = "CommitSmith";
 const OUTPUT_CHANNEL_ID = "commitSmith";
 
@@ -10,6 +12,20 @@ export type OutputChannelLike = Pick<
   Partial<Pick<vscode.OutputChannel, "dispose" | "show">>;
 
 let sharedChannel: OutputChannelLike | undefined;
+
+let debugPreferenceInitialized = false;
+let debugPreference = false;
+
+function ensureDebugPreferenceLoaded(): void {
+  if (debugPreferenceInitialized) {
+    return;
+  }
+  debugPreference = getConfig().outputShowDebug;
+  onDidChangeConfig((config) => {
+    debugPreference = config.outputShowDebug;
+  });
+  debugPreferenceInitialized = true;
+}
 
 export function getOutputChannel(): OutputChannelLike {
   if (!sharedChannel) {
@@ -22,6 +38,19 @@ export function getOutputChannel(): OutputChannelLike {
       } satisfies OutputChannelLike);
   }
   return sharedChannel;
+}
+
+export function shouldShowDebugOutput(): boolean {
+  ensureDebugPreferenceLoaded();
+  return debugPreference;
+}
+
+export function appendDebugLine(value: string): boolean {
+  if (!shouldShowDebugOutput()) {
+    return false;
+  }
+  getOutputChannel().appendLine(value);
+  return true;
 }
 
 export function isVscodeOutputChannel(

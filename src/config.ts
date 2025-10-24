@@ -1,4 +1,4 @@
-import * as vscode from "vscode";
+import type { Disposable, Event, ExtensionContext } from "vscode";
 
 const CONFIG_NAMESPACE = "commitSmith";
 
@@ -12,6 +12,7 @@ const CODEX_REASONING_LEVELS = ["low", "medium", "high"] as const;
 type CodexReasoningLevel = (typeof CODEX_REASONING_LEVELS)[number];
 
 export interface CommitSmithConfig {
+  readonly outputShowDebug: boolean;
   readonly formatCommand: string;
   readonly formatEnabled: boolean;
   readonly typecheckCommand: string;
@@ -37,6 +38,7 @@ export interface CommitSmithConfig {
 }
 
 const DEFAULTS: CommitSmithConfig = {
+  outputShowDebug: false,
   formatCommand: "npm run format:fix",
   formatEnabled: true,
   typecheckCommand: "npm run typecheck",
@@ -61,16 +63,91 @@ const DEFAULTS: CommitSmithConfig = {
   codexMcpWhitelist: [],
 };
 
-const configChangeEmitter =
-  new vscode.EventEmitter<CommitSmithConfig>();
+interface ConfigEmitter<T> {
+  readonly event: Event<T>;
+  fire(value: T): void;
+  dispose(): void;
+}
+
+class SimpleEventEmitter<T> implements ConfigEmitter<T> {
+  private readonly listeners = new Set<(value: T) => void>();
+
+  readonly event: Event<T>;
+
+  constructor() {
+    this.event = (listener, thisArgs, disposables) => {
+      const target =
+        typeof thisArgs === "undefined"
+          ? listener
+          : listener.bind(thisArgs);
+      this.listeners.add(target);
+      const disposable: Disposable = {
+        dispose: () => {
+          this.listeners.delete(target);
+        },
+      };
+      if (Array.isArray(disposables)) {
+        disposables.push(disposable);
+      }
+      return disposable;
+    };
+  }
+
+  fire(value: T): void {
+    for (const listener of [...this.listeners]) {
+      listener(value);
+    }
+  }
+
+  dispose(): void {
+    this.listeners.clear();
+  }
+}
+
+function createConfigEmitter<T>(): ConfigEmitter<T> {
+  const vscodeModule = tryRequireVscode();
+  if (vscodeModule?.EventEmitter) {
+    const { EventEmitter } = vscodeModule;
+    if (typeof EventEmitter === "function") {
+      try {
+        return new EventEmitter<T>();
+      } catch {
+        // Running under tests where the vscode shim does not expose
+        // EventEmitter as a constructible value.
+      }
+    }
+  }
+
+  return new SimpleEventEmitter<T>();
+}
+
+const configChangeEmitter = createConfigEmitter<CommitSmithConfig>();
 
 export const onDidChangeConfig = configChangeEmitter.event;
 
+function createDefaultConfig(): CommitSmithConfig {
+  return {
+    ...DEFAULTS,
+    codexExtraArgs: [...DEFAULTS.codexExtraArgs],
+    codexMcpWhitelist: [...DEFAULTS.codexMcpWhitelist],
+  };
+}
+
 export function initializeConfigWatcher(
-  context: vscode.ExtensionContext,
+  context: ExtensionContext,
 ): void {
+  const vscodeModule = tryRequireVscode();
+  const workspace = vscodeModule?.workspace;
+
+  if (
+    !workspace ||
+    typeof workspace.onDidChangeConfiguration !== "function"
+  ) {
+    return;
+  }
+
   context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((event) => {
+    workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration(CONFIG_NAMESPACE)) {
         configChangeEmitter.fire(getConfig());
       }
@@ -79,10 +156,27 @@ export function initializeConfigWatcher(
 }
 
 export function getConfig(): CommitSmithConfig {
-  const settings =
-    vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
+  const vscodeModule = tryRequireVscode();
+  const workspace = vscodeModule?.workspace;
+
+  if (
+    !workspace ||
+    typeof workspace.getConfiguration !== "function"
+  ) {
+    return createDefaultConfig();
+  }
+
+  const settings = workspace.getConfiguration(CONFIG_NAMESPACE);
+
+  if (!settings || typeof settings.get !== "function") {
+    return createDefaultConfig();
+  }
 
   return {
+    outputShowDebug: settings.get<boolean>(
+      "output.showDebug",
+      DEFAULTS.outputShowDebug,
+    ),
     formatCommand: settings.get<string>(
       "format.command",
       DEFAULTS.formatCommand,
@@ -186,6 +280,14 @@ export function getConfig(): CommitSmithConfig {
       ]),
     ),
   };
+}
+
+function tryRequireVscode(): typeof import("vscode") | undefined {
+  try {
+    return require("vscode") as typeof import("vscode");
+  } catch {
+    return undefined;
+  }
 }
 
 function clampMinimum(

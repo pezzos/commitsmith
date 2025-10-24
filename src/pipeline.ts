@@ -18,7 +18,7 @@ import {
   CodexExecutionOptions,
 } from "./codex";
 import { stageModified } from "./utils/git";
-import { getOutputChannel } from "./output";
+import { getOutputChannel, shouldShowDebugOutput } from "./output";
 import { GitRepository } from "./types/git";
 
 const execAsync = promisify(exec);
@@ -160,6 +160,7 @@ export async function runPipeline(
     log(
       hooks,
       "[Pipeline] No steps selected for execution; treating as complete.",
+      { debug: true },
     );
     return { status: "completed", suppressAutoPush: false };
   }
@@ -550,12 +551,21 @@ async function attemptAiFix(
   try {
     const context: FixContext = {
       filePath:
-        extractLikelyFilePath(result.stderr, repoRoot) ?? "unknown",
-      errorMessage: result.stderr,
+        extractLikelyFilePath(
+          result.stderr,
+          result.stdout ?? "",
+          repoRoot,
+        ) ?? "unknown",
+      errorMessage: buildErrorMessage(
+        result.stderr,
+        result.stdout ?? "",
+      ),
       step,
     };
 
-    log(hooks, `[Codex] Attempting AI fix for ${step}`);
+    log(hooks, `[Codex] Attempting AI fix for ${step}`, {
+      debug: true,
+    });
     const patch = await generateFix(context, codexOptions);
 
     const affectedFiles = extractPatchedFiles(patch.diff);
@@ -567,6 +577,7 @@ async function attemptAiFix(
       log(
         hooks,
         "[Codex] Patch only touched ignored files; skipping application",
+        { debug: true },
       );
       return false;
     }
@@ -575,6 +586,7 @@ async function attemptAiFix(
       log(
         hooks,
         "[Codex] Patch includes ignored files; skipping application",
+        { debug: true },
       );
       return false;
     }
@@ -594,12 +606,14 @@ async function attemptAiFix(
     log(
       hooks,
       `[Codex] Applied patch touching ${permittedFiles.join(", ")}`,
+      { debug: true },
     );
     return true;
   } catch (error) {
     log(
       hooks,
       `[Codex] Fix attempt failed: ${(error as Error).message}`,
+      { debug: true },
     );
     return false;
   }
@@ -607,57 +621,135 @@ async function attemptAiFix(
 
 function extractLikelyFilePath(
   stderr: string,
+  stdout: string,
   repoRoot: string,
 ): string | undefined {
-  const stackMatch = stderr.match(
-    /at (?:[^(]+\()?((?:file:\/\/)?[^\s)]+):\d+:\d+/,
+  const sources = [stderr, stdout].filter(
+    (value) => value && value.trim().length > 0,
+  ) as string[];
+
+  const repoCandidates: string[] = [];
+  const fallbackCandidates: string[] = [];
+
+  for (const source of sources) {
+    const { repo, other } = collectCandidatePaths(source, repoRoot);
+    repoCandidates.push(...repo);
+    fallbackCandidates.push(...other);
+  }
+
+  if (repoCandidates.length > 0) {
+    return repoCandidates[repoCandidates.length - 1];
+  }
+
+  if (fallbackCandidates.length > 0) {
+    return fallbackCandidates[fallbackCandidates.length - 1];
+  }
+
+  return undefined;
+}
+
+function buildErrorMessage(stderr: string, stdout: string): string {
+  const trimmedErr = stderr.trim();
+  const trimmedOut = stdout.trim();
+
+  if (!trimmedErr && trimmedOut) {
+    return summarizeStdout(trimmedOut);
+  }
+
+  if (
+    trimmedOut &&
+    (trimmedErr.length < 40 || isGenericNpmError(trimmedErr))
+  ) {
+    return `${trimmedErr}\n\nSTDOUT (tail):\n${summarizeStdout(trimmedOut)}`.trim();
+  }
+
+  return trimmedErr;
+}
+
+function summarizeStdout(output: string, maxLines = 20): string {
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+  if (lines.length <= maxLines) {
+    return lines.join("\n");
+  }
+  const tail = lines.slice(-maxLines);
+  return `${tail.join("\n")}\n… (${lines.length - maxLines} more lines)`;
+}
+
+function isGenericNpmError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.startsWith("npm err!") ||
+    normalized.includes("command failed") ||
+    normalized.includes("exit code")
   );
-  if (stackMatch?.[1]) {
-    const normalized = normalizeStackPath(stackMatch[1], repoRoot);
-    if (!normalized.startsWith("node_modules/")) {
-      return normalized;
+}
+
+function collectCandidatePaths(
+  text: string,
+  repoRoot: string,
+): { repo: string[]; other: string[] } {
+  const repo: string[] = [];
+  const other: string[] = [];
+
+  const push = (raw: string) => {
+    const normalized = normalizeStackPath(raw, repoRoot);
+    if (!normalized || normalized.length === 0) {
+      return;
+    }
+    if (normalized.startsWith("node_modules/")) {
+      other.push(normalized);
+      return;
+    }
+    if (normalized.startsWith("node:")) {
+      other.push(normalized);
+      return;
+    }
+    if (normalized.startsWith("internal/")) {
+      other.push(normalized);
+      return;
+    }
+    repo.push(normalized);
+  };
+
+  const lines = text.split(/\r?\n/);
+  let inRequireStack = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "Require stack:") {
+      inRequireStack = true;
+      continue;
+    }
+    if (inRequireStack) {
+      const match = line.match(/^\s*[-•]\s*(.+)$/);
+      if (match) {
+        push(match[1]);
+        continue;
+      }
+      if (trimmed.length === 0) {
+        continue;
+      }
+      inRequireStack = false;
     }
   }
 
   const extensionPattern =
     /([^\s'"`]+?\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|markdown|yml|yaml|toml|ini|cfg|conf|config|lock|sh|bash|py|rb|go|rs|java|cs|cpp|c|hpp|h|m|swift|php|sql|html|htm|css|scss|less|vue|svelte|xml|tf))(?:[:]\d+)?/gi;
-  const matches: string[] = [];
   let match: RegExpExecArray | null;
-  while ((match = extensionPattern.exec(stderr)) !== null) {
+  while ((match = extensionPattern.exec(text)) !== null) {
     const candidate = match[1];
-    // Strip surrounding characters like leading "(" or "./" left by the regex.
-    matches.push(candidate.replace(/^[(]/, "").replace(/[,.)]$/, ""));
+    push(candidate.replace(/^[(]/, "").replace(/[,.)]$/, ""));
   }
 
-  if (matches.length === 0) {
-    return undefined;
+  const stackPattern =
+    /at (?:[^(]+\()?((?:file:\/\/)?[^\s)]+):\d+:\d+/g;
+  while ((match = stackPattern.exec(text)) !== null) {
+    push(match[1]);
   }
 
-  const withSlash = matches.filter((candidate) => {
-    const hasSeparator =
-      candidate.includes("/") || candidate.includes("\\");
-    if (!hasSeparator) {
-      return false;
-    }
-    const normalized = normalizeStackPath(candidate, repoRoot);
-    return !normalized.startsWith("node_modules/");
-  });
-  if (withSlash.length > 0) {
-    return normalizeStackPath(
-      withSlash[withSlash.length - 1],
-      repoRoot,
-    );
-  }
-
-  const last = matches[matches.length - 1];
-  if (!last) {
-    return undefined;
-  }
-  const normalizedLast = normalizeStackPath(last, repoRoot);
-  if (normalizedLast.startsWith("node_modules/")) {
-    return undefined;
-  }
-  return normalizedLast;
+  return { repo, other };
 }
 
 function normalizeStackPath(raw: string, repoRoot: string): string {
@@ -837,8 +929,20 @@ async function resolveDecision(
   }
 }
 
-function log(hooks: PipelineHooks, message: string): void {
-  hooks.onLog?.(message);
+function log(
+  hooks: PipelineHooks,
+  message: string,
+  options?: { debug?: boolean },
+): void {
+  if (options?.debug && !shouldShowDebugOutput()) {
+    return;
+  }
+
+  if (hooks.onLog) {
+    hooks.onLog(message);
+    return;
+  }
+
   getOutputChannel().appendLine(message);
 }
 
@@ -846,7 +950,9 @@ function logStepInvocation(
   hooks: PipelineHooks,
   step: StepDefinition,
 ): void {
-  log(hooks, `[${formatStepLabel(step.id)} ↪] ${step.command}`);
+  log(hooks, `[${formatStepLabel(step.id)} ↪] ${step.command}`, {
+    debug: true,
+  });
 }
 
 function formatStepLabel(step: PipelineStepId): string {

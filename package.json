@@ -2,7 +2,7 @@
   "name": "commit-smith",
   "displayName": "CommitSmith",
   "description": "Forge high-quality commits with Codex-assisted workflows.",
-  "version": "0.0.53",
+  "version": "0.0.63",
   "publisher": "epicsmith",
   "license": "MIT",
   "main": "./dist/extension.js",
@@ -13,7 +13,7 @@
   "scripts": {
     "compile": "tsc -p .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:unit": "npm run compile && node ./scripts/test-unit-placeholder.mjs",
+    "test:unit": "npm run compile && node ./scripts/test-unit-placeholder.mjs && node ./scripts/test-vscode-shim.mjs",
     "test:config": "npm run compile && node ./scripts/test-config.mjs",
     "test:git": "node ./scripts/test-git.mjs",
     "test:codex": "node -r ts-node/register ./scripts/test-codex.ts",
@@ -36,9 +36,7 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:.git",
-    "onCommand:commitSmith.initializeRepo",
-    "onCommand:commitSmith.codexBootstrap"
+    "workspaceContains:.git"
   ],
   "bin": {
     "commit-smith": "./bin/commit-smith.js"
@@ -109,6 +107,17 @@
             "type": "boolean",
             "default": true,
             "description": "Abort the pipeline when a step remains failing after AI fixes."
+          }
+        }
+      },
+      {
+        "title": "CommitSmith › Output",
+        "properties": {
+          "commitSmith.output.showDebug": {
+            "type": "boolean",
+            "default": false,
+            "description": "Show verbose debugging messages in the CommitSmith output channel.",
+            "order": 10
           }
         }
       },
