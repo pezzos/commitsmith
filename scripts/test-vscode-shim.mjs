@@ -79,40 +79,52 @@ const quickPickItems = [
 ];
 
 const singleSelectCalls = [];
-const singleSelection = await vscode.window.showQuickPick(quickPickItems, {
-  onDidSelectItem: (item) => {
-    singleSelectCalls.push(item);
+const singleSelection = await vscode.window.showQuickPick(
+  quickPickItems,
+  {
+    onDidSelectItem: (item) => {
+      singleSelectCalls.push(item);
+    },
   },
-});
+);
 assert.deepEqual(singleSelection, quickPickItems[0]);
 assert.deepEqual(singleSelectCalls, [quickPickItems[0]]);
 
 quickPick.setNextResult(quickPickItems[1]);
-const overrideSelection = await vscode.window.showQuickPick(quickPickItems);
+const overrideSelection =
+  await vscode.window.showQuickPick(quickPickItems);
 assert.deepEqual(overrideSelection, quickPickItems[1]);
 
 const multiSelectCalls = [];
-const multiSelection = await vscode.window.showQuickPick(quickPickItems, {
-  canPickMany: true,
-  onDidSelectItem: (item) => {
-    multiSelectCalls.push(item);
+const multiSelection = await vscode.window.showQuickPick(
+  quickPickItems,
+  {
+    canPickMany: true,
+    onDidSelectItem: (item) => {
+      multiSelectCalls.push(item);
+    },
   },
-});
+);
 assert.deepEqual(multiSelection, quickPickItems);
 assert.deepEqual(multiSelectCalls, quickPickItems);
 
 quickPick.cancelNext();
-const cancelledSelection = await vscode.window.showQuickPick(quickPickItems);
+const cancelledSelection =
+  await vscode.window.showQuickPick(quickPickItems);
 assert.equal(cancelledSelection, undefined);
 
 quickPick.setNextResult(() => [quickPickItems[1]]);
-const multiOverride = await vscode.window.showQuickPick(quickPickItems, {
-  canPickMany: true,
-});
+const multiOverride = await vscode.window.showQuickPick(
+  quickPickItems,
+  {
+    canPickMany: true,
+  },
+);
 assert.deepEqual(multiOverride, [quickPickItems[1]]);
 
 quickPick.reset();
-const undefinedItemsSelection = await vscode.window.showQuickPick(undefined);
+const undefinedItemsSelection =
+  await vscode.window.showQuickPick(undefined);
 assert.equal(undefinedItemsSelection, undefined);
 
 const warningPromise = vscode.window.showWarningMessage("Beware!");
@@ -130,19 +142,19 @@ const infoSelection = await vscode.window.showInformationMessage(
 assert.deepEqual(infoSelection, infoItems[0]);
 
 messages.information.setNextResult(infoItems[1]);
-const queuedInfoSelection = await vscode.window.showInformationMessage(
-  "Queued choice",
-  ...infoItems,
-);
+const queuedInfoSelection =
+  await vscode.window.showInformationMessage(
+    "Queued choice",
+    ...infoItems,
+  );
 assert.deepEqual(queuedInfoSelection, infoItems[1]);
 
-const warningSelection =
-  await vscode.window.showWarningMessage(
-    "Danger ahead?",
-    { modal: true },
-    "Abort",
-    "Retry",
-  );
+const warningSelection = await vscode.window.showWarningMessage(
+  "Danger ahead?",
+  { modal: true },
+  "Abort",
+  "Retry",
+);
 assert.equal(warningSelection, "Abort");
 const warningCalls = messages.warning.getCalls();
 assert.ok(Array.isArray(warningCalls));
@@ -152,13 +164,12 @@ assert.equal(lastWarningCall.options.modal, true);
 assert.deepEqual(lastWarningCall.items, ["Abort", "Retry"]);
 
 messages.warning.setNextResult("Retry");
-const queuedWarningSelection =
-  await vscode.window.showWarningMessage(
-    "Danger ahead?",
-    { modal: true },
-    "Abort",
-    "Retry",
-  );
+const queuedWarningSelection = await vscode.window.showWarningMessage(
+  "Danger ahead?",
+  { modal: true },
+  "Abort",
+  "Retry",
+);
 assert.equal(queuedWarningSelection, "Retry");
 
 messages.error.setNextResult(undefined);
@@ -212,7 +223,10 @@ assert.equal(lastTerminal.options.name, "CommitSmith Manual Checks");
 assert.equal(lastTerminal.terminal.disposed, true);
 
 assert.ok(Array.isArray(vscode.window.terminals));
-assert.equal(vscode.window.terminals.find(() => true), undefined);
+assert.equal(
+  vscode.window.terminals.find(() => true),
+  undefined,
+);
 
 assert.equal(typeof vscode.ProgressLocation.Notification, "number");
 const progressResult = await vscode.window.withProgress(
@@ -235,7 +249,9 @@ assert.equal(
   lastProgressCall.options.location,
   vscode.ProgressLocation.Notification,
 );
-assert.deepEqual(lastProgressCall.reports[0], { message: "Starting" });
+assert.deepEqual(lastProgressCall.reports[0], {
+  message: "Starting",
+});
 assert.equal(lastProgressCall.lastMessage, "Halfway");
 assert.equal(lastProgressCall.lastIncrement, 50);
 assert.equal(lastProgressCall.result, "complete");

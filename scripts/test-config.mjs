@@ -239,9 +239,7 @@ try {
     "--dry-run --prompt-file ./prompt.txt",
   );
 
-  const configModule = await import(
-    path.join(distPath, "config.js")
-  );
+  const configModule = await import(path.join(distPath, "config.js"));
   configModule.__configTestUtils?.resetCodexExtraArgsWarningsForTest?.();
 
   configModule.getConfig();

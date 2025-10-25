@@ -22,7 +22,9 @@ async function listFilesByExtension(dir, extensions) {
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await listFilesByExtension(fullPath, extensions)));
+      files.push(
+        ...(await listFilesByExtension(fullPath, extensions)),
+      );
     } else if (
       entry.isFile() &&
       extensions.some((ext) => entry.name.endsWith(ext))
@@ -78,7 +80,11 @@ async function collectVscodeUsages() {
       const startIndex = match.index ?? 0;
       const charBefore =
         startIndex > 0 ? content[startIndex - 1] : undefined;
-      if (charBefore === "'" || charBefore === '"' || charBefore === "`") {
+      if (
+        charBefore === "'" ||
+        charBefore === '"' ||
+        charBefore === "`"
+      ) {
         continue;
       }
       const lineStart = content.lastIndexOf("\n", startIndex - 1) + 1;

@@ -96,7 +96,10 @@ function isQuickPickOptions(value) {
   return (
     Object.prototype.hasOwnProperty.call(value, "canPickMany") ||
     Object.prototype.hasOwnProperty.call(value, "placeHolder") ||
-    Object.prototype.hasOwnProperty.call(value, "matchOnDescription") ||
+    Object.prototype.hasOwnProperty.call(
+      value,
+      "matchOnDescription",
+    ) ||
     Object.prototype.hasOwnProperty.call(value, "matchOnDetail") ||
     Object.prototype.hasOwnProperty.call(value, "title") ||
     Object.prototype.hasOwnProperty.call(value, "onDidSelectItem")
@@ -104,12 +107,18 @@ function isQuickPickOptions(value) {
 }
 
 function normalizeQuickPickArgs(optionsOrToken, tokenMaybe) {
-  if (isCancellationToken(optionsOrToken) && !isQuickPickOptions(optionsOrToken)) {
+  if (
+    isCancellationToken(optionsOrToken) &&
+    !isQuickPickOptions(optionsOrToken)
+  ) {
     return { options: {}, token: optionsOrToken };
   }
   return {
     options: optionsOrToken || {},
-    token: tokenMaybe && isCancellationToken(tokenMaybe) ? tokenMaybe : undefined,
+    token:
+      tokenMaybe && isCancellationToken(tokenMaybe)
+        ? tokenMaybe
+        : undefined,
   };
 }
 
@@ -251,10 +260,17 @@ function createProgressManager() {
           normalized = { message: value };
         }
         call.reports.push(normalized);
-        if (Object.prototype.hasOwnProperty.call(normalized, "message")) {
+        if (
+          Object.prototype.hasOwnProperty.call(normalized, "message")
+        ) {
           call.lastMessage = normalized.message;
         }
-        if (Object.prototype.hasOwnProperty.call(normalized, "increment")) {
+        if (
+          Object.prototype.hasOwnProperty.call(
+            normalized,
+            "increment",
+          )
+        ) {
           call.lastIncrement = normalized.increment;
         }
       },
@@ -425,12 +441,19 @@ function createQuickPickController() {
 }
 
 function createShowQuickPick(controller) {
-  const showQuickPick = async function showQuickPick(itemsInput, optionsOrToken, tokenMaybe) {
+  const showQuickPick = async function showQuickPick(
+    itemsInput,
+    optionsOrToken,
+    tokenMaybe,
+  ) {
     if (itemsInput === undefined || itemsInput === null) {
       return undefined;
     }
 
-    const { options, token } = normalizeQuickPickArgs(optionsOrToken, tokenMaybe);
+    const { options, token } = normalizeQuickPickArgs(
+      optionsOrToken,
+      tokenMaybe,
+    );
     const resolvedItems = await Promise.resolve(itemsInput);
     if (resolvedItems === undefined || resolvedItems === null) {
       return undefined;
@@ -447,7 +470,10 @@ function createShowQuickPick(controller) {
           cancelled = true;
         });
         if (cancelled) {
-          if (disposable && typeof disposable.dispose === "function") {
+          if (
+            disposable &&
+            typeof disposable.dispose === "function"
+          ) {
             disposable.dispose();
           }
           return undefined;
@@ -462,7 +488,10 @@ function createShowQuickPick(controller) {
 
     let selection;
     if (queued && queued.type === "result") {
-      selection = await resolveQueuedResult(queued.value, { items, options });
+      selection = await resolveQueuedResult(queued.value, {
+        items,
+        options,
+      });
     } else if (options.canPickMany) {
       selection = items.slice();
     } else if (items.length > 0) {
@@ -514,8 +543,12 @@ export function createVscodeMock(options = {}) {
   const infoMessageController = createMessageController("info");
   const warningMessageController = createMessageController("warning");
   const errorMessageController = createMessageController("error");
-  const showInformationMessage = createShowMessage(infoMessageController);
-  const showWarningMessage = createShowMessage(warningMessageController);
+  const showInformationMessage = createShowMessage(
+    infoMessageController,
+  );
+  const showWarningMessage = createShowMessage(
+    warningMessageController,
+  );
   const showErrorMessage = createShowMessage(errorMessageController);
   const terminalManager = createTerminalManager();
   const progressManager = createProgressManager();
@@ -622,7 +655,8 @@ export function createVscodeMock(options = {}) {
     context,
     registeredCommands,
     quickPick: {
-      setNextResult: (result) => quickPickController.enqueueResult(result),
+      setNextResult: (result) =>
+        quickPickController.enqueueResult(result),
       cancelNext: () => quickPickController.enqueueCancel(),
       reset: () => quickPickController.reset(),
     },

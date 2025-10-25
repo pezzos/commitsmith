@@ -92,7 +92,9 @@ try {
   const FAST_LANE_REMINDER_KEY =
     "commitSmith.preferences.fastLaneReminderAcknowledged";
   let workspaceUpdateCalls = 0;
-  originalWorkspaceUpdate = context.workspaceState.update.bind(context.workspaceState);
+  originalWorkspaceUpdate = context.workspaceState.update.bind(
+    context.workspaceState,
+  );
   context.workspaceState.update = async (...args) => {
     workspaceUpdateCalls += 1;
     return originalWorkspaceUpdate(...args);
@@ -100,10 +102,15 @@ try {
 
   await extension.activate(context);
 
-  const initialLane = context.workspaceState.get(LANE_STATE_KEY, "fast");
+  const initialLane = context.workspaceState.get(
+    LANE_STATE_KEY,
+    "fast",
+  );
   assert.equal(initialLane, "fast");
 
-  await vscode.commands.executeCommand("commitSmith.pipeline.toggleLane");
+  await vscode.commands.executeCommand(
+    "commitSmith.pipeline.toggleLane",
+  );
   assert.equal(context.workspaceState.get(LANE_STATE_KEY), "guarded");
   assert.equal(
     workspaceUpdateCalls > 0,
@@ -149,7 +156,9 @@ try {
     "Fast lane reminder acknowledgement should persist",
   );
 
-  await vscode.commands.executeCommand("commitSmith.pipeline.toggleLane");
+  await vscode.commands.executeCommand(
+    "commitSmith.pipeline.toggleLane",
+  );
   assert.equal(context.workspaceState.get(LANE_STATE_KEY), "fast");
   assert.equal(
     context.globalState.get(FAST_LANE_REMINDER_KEY, false),
