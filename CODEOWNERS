@@ -1,0 +1,2 @@
+scripts/test-utils/mock-vscode.js @pipeline-team/shim-guardians
+scripts/test-vscode-shim.mjs @pipeline-team/shim-guardians

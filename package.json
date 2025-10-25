@@ -26,7 +26,7 @@
     "test:all": "npm run test:unit && npm run test:config && npm run test:git && npm run test:codex && npm run test:codex-contract && npm run test:journal && npm run test:pipeline && npm run test:integration && npm run test:dry-run && npm run test:offline",
     "format:check": "prettier --check . --config .prettierrc.json",
     "format:fix": "prettier --write . --config .prettierrc.json",
-    "lint": "tsc --noEmit -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json && node ./scripts/check-vscode-parity.mjs",
     "package": "npm version patch --no-git-tag-version && npm run compile && vsce package"
   },
   "engines": {

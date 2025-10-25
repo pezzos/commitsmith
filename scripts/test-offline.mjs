@@ -30,16 +30,16 @@ let pushAttempts = 0;
 class EventEmitter {
   #listeners = new Set();
 
-  event(listener) {
+  event = (listener) => {
     this.#listeners.add(listener);
     return { dispose: () => this.#listeners.delete(listener) };
-  }
+  };
 
-  fire(value) {
+  fire = (value) => {
     for (const listener of this.#listeners) {
       listener(value);
     }
-  }
+  };
 }
 
 const configStore = new Map([

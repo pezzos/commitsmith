@@ -84,9 +84,38 @@ const { restore, context, vscode } = withVscodeMock(
   { tempDir, registeredCommands },
 );
 
+let originalWorkspaceUpdate;
+
 try {
   const extension = await import("../dist/extension.js");
-  extension.activate(context);
+  const LANE_STATE_KEY = "commitSmith.pipeline.lane";
+  const FAST_LANE_REMINDER_KEY =
+    "commitSmith.preferences.fastLaneReminderAcknowledged";
+  let workspaceUpdateCalls = 0;
+  originalWorkspaceUpdate = context.workspaceState.update.bind(context.workspaceState);
+  context.workspaceState.update = async (...args) => {
+    workspaceUpdateCalls += 1;
+    return originalWorkspaceUpdate(...args);
+  };
+
+  await extension.activate(context);
+
+  const initialLane = context.workspaceState.get(LANE_STATE_KEY, "fast");
+  assert.equal(initialLane, "fast");
+
+  await vscode.commands.executeCommand("commitSmith.pipeline.toggleLane");
+  assert.equal(context.workspaceState.get(LANE_STATE_KEY), "guarded");
+  assert.equal(
+    workspaceUpdateCalls > 0,
+    true,
+    "workspaceState.update should be called when toggling lane",
+  );
+
+  await context.globalState.update(FAST_LANE_REMINDER_KEY, true);
+  assert.equal(
+    context.globalState.get(FAST_LANE_REMINDER_KEY, false),
+    true,
+  );
 
   const expected = [
     "commitSmith.generateFromJournal",
@@ -102,7 +131,35 @@ try {
     );
   }
 
+  for (const disposable of context.subscriptions) {
+    disposable.dispose();
+  }
+  context.subscriptions.length = 0;
+
+  await extension.activate(context);
+
+  assert.equal(
+    context.workspaceState.get(LANE_STATE_KEY, "fast"),
+    "guarded",
+    "Lane should persist across activations",
+  );
+  assert.equal(
+    context.globalState.get(FAST_LANE_REMINDER_KEY, false),
+    true,
+    "Fast lane reminder acknowledgement should persist",
+  );
+
+  await vscode.commands.executeCommand("commitSmith.pipeline.toggleLane");
+  assert.equal(context.workspaceState.get(LANE_STATE_KEY), "fast");
+  assert.equal(
+    context.globalState.get(FAST_LANE_REMINDER_KEY, false),
+    true,
+  );
+
   console.info("Integration tests passed");
 } finally {
+  if (originalWorkspaceUpdate) {
+    context.workspaceState.update = originalWorkspaceUpdate;
+  }
   restore();
 }

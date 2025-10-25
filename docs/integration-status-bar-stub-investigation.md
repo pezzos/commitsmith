@@ -62,9 +62,14 @@ Status Bar Lane Regression
 | `vscode.window.onDidCloseTerminal` | clears manual terminal handle | ✔ | stub returns disposable |
 | `vscode.workspace.workspaceFolders`, `getConfiguration`, `onDidChangeConfiguration` | activation defaults | ✔ | implemented |
 | `vscode.commands.registerCommand` | command registration checks | ✔ | collects IDs |
-| Quick pick / `showQuickPick` | lane chooser (`lines ~157`, `~440`) | ✖ → **Follow-up:** implement `showQuickPick` stub returning selectable items. *Owner:* pipeline team. **Acceptance:** guard script asserts method exists and resolves the provided item. |
-| `showInformationMessage`, `showWarningMessage`, `showErrorMessage` | reminder + error flows | ✖ → **Follow-up:** add noop message stubs resolving `undefined`. *Owner:* pipeline team. **Acceptance:** guard script verifies each function returns a promise. |
-| `vscode.window.createTerminal`, `withProgress` | manual command runner / pipeline feedback | ✖ → **Follow-up:** coordinate with manual-command feature owner to provide stub terminal and progress reporter. **Acceptance:** guard script covers both APIs and manual-command tests remain green. |
+| Quick pick / `showQuickPick` | lane chooser (`lines ~157`, `~440`) | ✔ | stub returns default selection, respects `canPickMany`, and supports queued overrides/cancellation; guard asserts single, multi, and cancel flows. |
+| `showInformationMessage`, `showWarningMessage`, `showErrorMessage` | reminder + error flows | ✔ | stubs return promises, honor modal/options metadata, support string/message-item actions, and guard captures selection behaviour. |
+| `vscode.window.createTerminal`, `withProgress` | manual command runner / pipeline feedback | ✔ | terminal stub captures `sendText`/`show` calls and exit status; `withProgress` supports window/notification locations, reporter updates, and guard verifies recorded progress. |
+| Dry-run harness (`scripts/test-dry-run.mjs`) | bespoke shim covering configuration, output channel, minimal progress reporting | Keep bespoke (2025-10-24 – owner: pipeline QA). Rationale: harness builds `dist/workflows/dryRun.js` directly and mocks codex CLI/child processes; adopting shared shim would require replicating git exec stubbing and Mock Codex wiring. No additional VS Code APIs needed. Review cadence: quarterly (next review due 2026-01-24). | |
+| Config harness (`scripts/test-config.mjs`) | bespoke shim limited to `workspace.getConfiguration` and `onDidChangeConfiguration` | Keep bespoke (2025-10-25 – owner: pipeline QA). Rationale: harness only validates `dist/config.js` defaults/overrides using Map-backed configuration; shared shim adds no benefit and would complicate precise configuration assertions. No new VS Code APIs involved. Review cadence: quarterly (next review due 2026-01-25). | |
+| Codex TS harness (`scripts/test-codex.ts`) | bespoke shim providing config access, output channel, progress reporter, telemetry subscription, codex CLI mock wiring | Keep bespoke (2025-10-25 – owner: codex platform). Rationale: harness exercises codex CLI spawn/telemetry with custom codex mock; migrating would require layering the shared shim atop complex CLI stubbing with no additional VS Code APIs. Review cadence: quarterly (next review due 2026-01-25). | |
+| Codex JS harness (`scripts/test-codex.mjs`) | _File removed_ – legacy JS harness superseded by TypeScript variant (`scripts/test-codex.ts`) | No action (2025-10-25 – owner: codex platform). Rationale: the JS harness no longer exists in repo; all codex workflow coverage runs through the TS harness audited above, so shared shim adoption is not applicable. Review cadence: verify remains absent quarterly (next review due 2026-01-25). | |
+| Workspace harness (`scripts/test-workspace.mjs`) | _File removed_ – workspace tests handled elsewhere | No action (2025-10-25 – owner: pipeline QA). Rationale: harness was deleted; no shim migration needed. Review cadence: verify remains absent quarterly (next review due 2026-01-25). | |
 
 ### Workspace/Global State Lifecycle
 - The helper’s mementos persist for the life of the mock instance (multiple activations within the same Node process see the same values). State resets when the harness exits, matching VS Code process lifetime semantics.  
@@ -81,7 +86,26 @@ Status Bar Lane Regression
 
 ### Action Items / Ownership
 - **Checklist:** Add a reviewer reminder to ensure `scripts/test-utils/mock-vscode.js` is updated alongside any new VS Code API usage in `src/extension.ts`. *Owner:* pipeline team reviewers (track via CODEOWNERS checklist).  
-- Monitor quick pick/terminal usage and expand the shared shim when activation begins to rely on those APIs; coordinate with harness owners before broadening coverage.
+- Monitor terminal/progress usage and expand the shared shim when activation begins to rely on those APIs; coordinate with harness owners before broadening coverage.
+
+### Ticket Status
+- CSH-421 ✅ ([this PR](#)) – Added `window.showQuickPick` stub with queueable overrides/cancellation plus guard coverage; `npm run test:unit` and `npm run test:integration` pass with the updated shim.
+- CSH-422 ✅ ([this PR](#)) – Added dialog stubs with modal/options support, queueable selections, guard assertions, and passing unit/integration suites.
+- CSH-423 ✅ ([this PR](#)) – Added terminal/progress shims with call tracking, guard coverage, and passing unit/integration test suites.
+- CSH-424 ✅ ([this PR](#)) – Added workspace-state persistence regression exercising double activation and lane toggling within `scripts/test-integration.mjs`.
+- CSH-425 ✅ ([this PR](#)) – Audited dry-run harness; decision recorded to keep bespoke shim with quarterly review.
+- CSH-426 ✅ ([this PR](#)) – Audited config harness; retained bespoke shim with documented cadence.
+- CSH-427 ✅ ([this PR](#)) – Audited codex TS harness; bespoke shim maintained with review cadence.
+- CSH-428 ✅ ([this PR](#)) – Confirmed codex JS harness removed; no migration required.
+- CSH-429 ✅ ([this PR](#)) – Confirmed workspace harness removal; no migration required.
+- CSH-430 ✅ ([this PR](#)) – Added shim/guard checklist to CONTRIBUTING and PR template; CODEOWNERS updated.
+- CSH-431 ✅ ([this PR](#)) – Documented `ci-unit-tests` job as guard location in CONTRIBUTING.
+- CSH-432 ✅ ([this PR](#)) – Added warning-mode VS Code API parity lint wired into `npm run lint`.
+- CSH-433 ✅ ([this PR](#)) – Deduplicated Codex CLI deprecated-flag warnings each process and added config test coverage.
+- CSH-434 ✅ ([this PR](#)) – Final verification run (`npm run test:unit`, `npm run test:integration`, `node scripts/test-integration.mjs`, `npm run test:all`) confirmed green status.
+
+### Final Verification Checklist
+- ✅ 2025-10-25 – `npm run test:integration`, `node ./scripts/test-integration.mjs`, and `npm run test:all` executed; persistence regression and guard suites green in this PR.
 
 ### Open Questions
 - Some scenario harnesses still maintain bespoke (minimalist) shims. As we migrate more activation logic into shared code, evaluate whether those suites should adopt the common helper or keep tailored mocks.  

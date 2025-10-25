@@ -62,4 +62,5 @@ Goal: eliminate the status bar shim regression class by aligning the integration
 10. After implementing the above:
     - Execute `npm run test:unit`, `npm run test:integration`, the new workspace-state regression, and `npm run test:all`.
     - As each ticket ships, append completion status using the standard format `CSH-421 ✅ PR #1234` back into `docs/integration-status-bar-stub-investigation.md`, keeping the doc as the single source of truth for remediation state.
-    - Owner: Assigned engineer closing the loop.
+    - Owner: Assigned engineer closing the loop.  
+      ✅ Completed 2025-10-25 (this PR).

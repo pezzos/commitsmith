@@ -228,6 +228,44 @@ try {
     defaults.codexSerenaOverride,
   );
 
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => {
+    warnings.push(args.join(" "));
+  };
+
+  configurationStore.set(
+    "codex.extraArgs",
+    "--dry-run --prompt-file ./prompt.txt",
+  );
+
+  const configModule = await import(
+    path.join(distPath, "config.js")
+  );
+  configModule.__configTestUtils?.resetCodexExtraArgsWarningsForTest?.();
+
+  configModule.getConfig();
+  configModule.getConfig();
+
+  console.warn = originalWarn;
+
+  const dryRunWarnings = warnings.filter((message) =>
+    message.includes("--dry-run"),
+  );
+  const promptWarnings = warnings.filter((message) =>
+    message.includes("--prompt-file"),
+  );
+  assert.equal(
+    dryRunWarnings.length,
+    1,
+    "Expected --dry-run warning to emit once",
+  );
+  assert.equal(
+    promptWarnings.length,
+    1,
+    "Expected --prompt-file warning to emit once",
+  );
+
   console.info("Config tests passed");
 } finally {
   Module._load = moduleOverride;

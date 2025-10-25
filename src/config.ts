@@ -366,6 +366,7 @@ function parseCliArgs(value: string | undefined): string[] {
 
   const sanitized: string[] = [];
   const bannedFlags = new Set(["--dry-run", "--prompt-file"]);
+  const warnedFlags = getWarnedCodexFlags();
 
   for (let index = 0; index < parts.length; index += 1) {
     const token = parts[index];
@@ -375,9 +376,15 @@ function parseCliArgs(value: string | undefined): string[] {
       lower.startsWith("--prompt-file=") ||
       bannedFlags.has(lower)
     ) {
-      console.warn(
-        `[CommitSmith] Removing deprecated Codex CLI flag "${token}" from commitSmith.codex.extraArgs.`,
-      );
+      const warningKey = lower.startsWith("--prompt-file")
+        ? "--prompt-file"
+        : lower;
+      if (!warnedFlags.has(warningKey)) {
+        warnedFlags.add(warningKey);
+        console.warn(
+          `[CommitSmith] Removing deprecated Codex CLI flag "${token}" from commitSmith.codex.extraArgs.`,
+        );
+      }
       if (lower === "--prompt-file" && index + 1 < parts.length) {
         // Skip the value passed to --prompt-file <path>
         index += 1;
@@ -411,3 +418,15 @@ function parseSerenaOverride(
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
+
+const warnedCodexFlags = new Set<string>();
+
+function getWarnedCodexFlags(): Set<string> {
+  return warnedCodexFlags;
+}
+
+export const __configTestUtils = {
+  resetCodexExtraArgsWarningsForTest() {
+    warnedCodexFlags.clear();
+  },
+};
