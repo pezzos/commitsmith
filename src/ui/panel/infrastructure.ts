@@ -3,6 +3,7 @@ import { getConfig, onDidChangeConfig } from "../../config";
 import {
   CommitSmithStateStore,
   CommitSmithUIBridge,
+  CommitSmithViewProvider,
   RepositorySelector,
   StepExecutionGate,
 } from ".";
@@ -55,6 +56,25 @@ export function initializeUiInfrastructure(
     gate,
     repositorySelector,
     bridge,
+  );
+
+  const viewProvider = new CommitSmithViewProvider(context, {
+    stateStore,
+    bridge,
+    gate,
+    repositorySelector,
+  });
+
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      CommitSmithViewProvider.viewType,
+      viewProvider,
+      {
+        webviewOptions: {
+          retainContextWhenHidden: true,
+        },
+      },
+    ),
   );
 
   registerCommands(context);

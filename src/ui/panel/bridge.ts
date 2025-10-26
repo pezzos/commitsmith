@@ -14,6 +14,10 @@ import {
   toWebviewResource,
 } from "./security";
 
+export interface StateSnapshot extends PersistedUiState {
+  readonly repositoryAvailable: boolean;
+}
+
 export type UiIncomingMessage =
   | {
       readonly type: "RUN_STEP";
@@ -32,6 +36,26 @@ export type UiIncomingMessage =
       readonly payload: { cursor?: string };
     }
   | {
+      readonly type: "SET_SECTION_COLLAPSED";
+      readonly payload: { sectionId: string; collapsed: boolean };
+    }
+  | {
+      readonly type: "UPDATE_DRAFT_MESSAGE";
+      readonly payload: { value: string };
+    }
+  | {
+      readonly type: "UPDATE_DRAFT_NOTE";
+      readonly payload: { value: string };
+    }
+  | {
+      readonly type: "UPDATE_NOTE_OPT_OUT";
+      readonly payload: { value: boolean };
+    }
+  | {
+      readonly type: "UPDATE_PUSH_AFTER";
+      readonly payload: { value: boolean };
+    }
+  | {
       readonly type: "COMMIT_AND_PUSH";
       readonly payload: { message: string; push: boolean };
     }
@@ -41,7 +65,7 @@ export type UiIncomingMessage =
     };
 
 export type UiOutgoingMessage =
-  | { readonly type: "STATE_SYNC"; readonly payload: PersistedUiState }
+  | { readonly type: "STATE_SYNC"; readonly payload: StateSnapshot }
   | { readonly type: "STEP_STATUS"; readonly payload: StepStatusEvent }
   | { readonly type: "APPEND_LOG"; readonly payload: AppendLogEvent }
   | { readonly type: "JOURNAL_UPDATE"; readonly payload: JournalEntry[] }
@@ -104,11 +128,15 @@ export class CommitSmithUIBridge implements vscode.Disposable {
 
   render(
     view: vscode.WebviewView,
-    body: string,
+    builder: (nonce: string) => {
+      body: string;
+      head?: string;
+    },
   ): { nonce: string } {
     const nonce = createNonce();
     const { webview } = view;
     const csp = createContentSecurityPolicy(webview, nonce);
+    const { body, head } = builder(nonce);
     webview.html = [
       "<!DOCTYPE html>",
       "<html lang=\"en\">",
@@ -116,6 +144,7 @@ export class CommitSmithUIBridge implements vscode.Disposable {
       "<meta charset=\"UTF-8\">",
       csp,
       "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\" />",
+      head ?? "",
       "</head>",
       "<body>",
       body,

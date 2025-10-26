@@ -101,9 +101,7 @@ export class RepositorySelector implements vscode.Disposable {
   }
 
   private computeSnapshot(): RepositorySnapshot | null {
-    const selected =
-      this.gitApi?.selectedRepository ??
-      this.gitApi?.repositories?.[0];
+    const selected = this.gitApi?.selectedRepository;
     if (selected) {
       return {
         rootUri: selected.rootUri,
@@ -111,15 +109,17 @@ export class RepositorySelector implements vscode.Disposable {
         branch: selected.state?.HEAD?.name ?? undefined,
       };
     }
-    const workspaceFolder =
-      vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) {
-      return null;
+
+    const repositories = this.gitApi?.repositories ?? [];
+    if (repositories.length === 1) {
+      const repo = repositories[0];
+      return {
+        rootUri: repo.rootUri,
+        name: repo.rootUri.path.split("/").pop() ?? "repo",
+        branch: repo.state?.HEAD?.name ?? undefined,
+      };
     }
-    return {
-      rootUri: workspaceFolder.uri,
-      name: workspaceFolder.name,
-      branch: undefined,
-    };
+
+    return null;
   }
 }
