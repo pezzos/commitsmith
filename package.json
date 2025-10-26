@@ -42,6 +42,23 @@
     "commit-smith": "./bin/commit-smith.js"
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "commitSmith.container",
+          "title": "CommitSmith",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "commitSmith.container": [
+        {
+          "id": "commitSmith.panel",
+          "name": "CommitSmith Panel"
+        }
+      ]
+    },
     "configuration": [
       {
         "title": "CommitSmith › Pipeline Steps",
@@ -209,6 +226,43 @@
             "order": 90
           }
         }
+      },
+      {
+        "title": "CommitSmith › Validation",
+        "properties": {
+          "commitSmith.validation.allowOverride": {
+            "type": "boolean",
+            "default": true,
+            "description": "Allow overriding commit validation warnings (e.g., non-standard Conventional Commit headers) from the UI."
+          }
+        }
+      },
+      {
+        "title": "CommitSmith › Logs",
+        "properties": {
+          "commitSmith.logs.maskPatterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "(?i)api[_-]?key\\s*=\\s*([a-z0-9-_]{16,})",
+              "(?i)secret\\s*=\\s*([a-z0-9/+]{24,})",
+              "\\b[A-Za-z0-9_-]{40,}\\b"
+            ],
+            "description": "Regular expressions used to mask secrets from streamed logs inside the CommitSmith UI."
+          }
+        }
+      },
+      {
+        "title": "CommitSmith › UI",
+        "properties": {
+          "commitSmith.ui.enableKeybindings": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable default CommitSmith UI keyboard shortcuts (Format, Lint, Typecheck, Tests, Commit)."
+          }
+        }
       }
     ],
     "commands": [
@@ -273,6 +327,78 @@
         "command": "commitSmith.pipeline.showChecks",
         "title": "CommitSmith: Show Check Status",
         "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.openPanel",
+        "title": "CommitSmith: Open Panel",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.runFormat",
+        "title": "CommitSmith: Run Formatter",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.runLint",
+        "title": "CommitSmith: Run Linter",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.runTypecheck",
+        "title": "CommitSmith: Run Typecheck",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.runTests",
+        "title": "CommitSmith: Run Tests",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.askCodexReview",
+        "title": "CommitSmith: Ask Codex Review",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.addManualNote",
+        "title": "CommitSmith: Add Manual Note",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.commitAndPush",
+        "title": "CommitSmith: Commit & Push",
+        "category": "CommitSmith"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "commitSmith.runFormat",
+        "key": "cmd+shift+,",
+        "mac": "cmd+shift+,",
+        "when": "commitSmith:uiKeybindingsEnabled"
+      },
+      {
+        "command": "commitSmith.runLint",
+        "key": "cmd+shift+.",
+        "mac": "cmd+shift+.",
+        "when": "commitSmith:uiKeybindingsEnabled"
+      },
+      {
+        "command": "commitSmith.runTypecheck",
+        "key": "cmd+shift+/",
+        "mac": "cmd+shift+/",
+        "when": "commitSmith:uiKeybindingsEnabled"
+      },
+      {
+        "command": "commitSmith.runTests",
+        "key": "cmd+shift+'",
+        "mac": "cmd+shift+'",
+        "when": "commitSmith:uiKeybindingsEnabled"
+      },
+      {
+        "command": "commitSmith.commitAndPush",
+        "key": "cmd+shift+enter",
+        "mac": "cmd+shift+enter",
+        "when": "commitSmith:uiKeybindingsEnabled"
       }
     ],
     "menus": {

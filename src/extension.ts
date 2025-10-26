@@ -40,6 +40,7 @@ import {
   hasAcknowledgedFastLaneReminder,
   recordFastLaneReminderAcknowledged,
 } from "./preferences";
+import { initializeUiInfrastructure } from "./ui/panel/infrastructure";
 
 const execFileAsync = promisify(execFile);
 const PIPELINE_STEPS: PipelineStepId[] = [
@@ -778,6 +779,7 @@ class PipelineCheckScheduler implements vscode.Disposable {
 }
 export function activate(context: vscode.ExtensionContext): void {
   initializeConfigWatcher(context);
+  initializeUiInfrastructure(context);
 
   const outputChannel = getOutputChannel();
   if (isVscodeOutputChannel(outputChannel)) {

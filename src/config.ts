@@ -35,6 +35,9 @@ export interface CommitSmithConfig {
   readonly codexTimeoutMs: number;
   readonly codexSerenaTimeoutMs: number;
   readonly codexMcpWhitelist: readonly string[];
+  readonly validationAllowOverride: boolean;
+  readonly logMaskPatterns: readonly string[];
+  readonly uiEnableKeybindings: boolean;
 }
 
 const DEFAULTS: CommitSmithConfig = {
@@ -61,6 +64,13 @@ const DEFAULTS: CommitSmithConfig = {
   codexTimeoutMs: 120_000,
   codexSerenaTimeoutMs: 180_000,
   codexMcpWhitelist: [],
+  validationAllowOverride: true,
+  logMaskPatterns: [
+    "(?i)api[_-]?key\\s*=\\s*([a-z0-9-_]{16,})",
+    "(?i)secret\\s*=\\s*([a-z0-9/+]{24,})",
+    "\\b[A-Za-z0-9_-]{40,}\\b",
+  ],
+  uiEnableKeybindings: true,
 };
 
 interface ConfigEmitter<T> {
@@ -130,6 +140,7 @@ function createDefaultConfig(): CommitSmithConfig {
     ...DEFAULTS,
     codexExtraArgs: [...DEFAULTS.codexExtraArgs],
     codexMcpWhitelist: [...DEFAULTS.codexMcpWhitelist],
+    logMaskPatterns: [...DEFAULTS.logMaskPatterns],
   };
 }
 
@@ -278,6 +289,19 @@ export function getConfig(): CommitSmithConfig {
       settings.get<string[]>("codex.mcpWhitelist", [
         ...DEFAULTS.codexMcpWhitelist,
       ]),
+    ),
+    validationAllowOverride: settings.get<boolean>(
+      "validation.allowOverride",
+      DEFAULTS.validationAllowOverride,
+    ),
+    logMaskPatterns: parseStringArray(
+      settings.get<string[]>("logs.maskPatterns", [
+        ...DEFAULTS.logMaskPatterns,
+      ]),
+    ),
+    uiEnableKeybindings: settings.get<boolean>(
+      "ui.enableKeybindings",
+      DEFAULTS.uiEnableKeybindings,
     ),
   };
 }
