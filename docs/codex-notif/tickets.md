@@ -84,7 +84,7 @@ While implementing the ticket, if you notice that a future ticket needs improvem
 - Fallback remains armed throughout failures.
 - Automated tests validate retry timing, cancellation, and escalation.
 
-**Dependencies**: Ticket 2 – JournalWriter Event Wiring & CLI Integration
+**Dependencies**: Ticket 2 – JournalWriter Event Wiring & CLI Integration; Ticket 6 – CommitSmith CLI Upsert Support
 
 ---
 
@@ -114,7 +114,7 @@ While implementing the ticket, if you notice that a future ticket needs improvem
 - Headless runs emit structured logs; interactive runs continue to display toasts.
 - Tests cover normalization and headless logging path.
 
-**Dependencies**: Ticket 2 – JournalWriter Event Wiring & CLI Integration
+**Dependencies**: Ticket 2 – JournalWriter Event Wiring & CLI Integration; Ticket 6 – CommitSmith CLI Upsert Support
 
 ---
 
