@@ -8,9 +8,10 @@ import {
   RepositorySelector,
   StepExecutionGate,
 } from ".";
+import { StepController } from "./stepController";
 import { UiTelemetryReporter } from "../telemetryReporter";
 import { onCodexOfflineFallback, checkCodexHealth } from "../../codex";
-import { StepId } from "../../shared/types";
+import { StepId, StepStatusEvent } from "../../shared/types";
 
 const COMMAND_OPEN_PANEL = "commitSmith.openPanel";
 const COMMAND_RUN_FORMAT = "commitSmith.runFormat";
@@ -57,6 +58,13 @@ export function initializeUiInfrastructure(
   });
   const telemetryReporter = new UiTelemetryReporter();
   const notifier = new CommitSmithNotifier(bridge, telemetryReporter);
+  const stepController = new StepController({
+    stateStore,
+    bridge,
+    gate,
+    repositorySelector,
+    notifier,
+  });
 
   context.subscriptions.push(
     stateStore,
@@ -64,6 +72,7 @@ export function initializeUiInfrastructure(
     repositorySelector,
     bridge,
     notifier,
+    stepController,
     {
       dispose: () => {
         if (currentStateStore === stateStore) {
@@ -92,7 +101,11 @@ export function initializeUiInfrastructure(
     ),
   );
 
-  registerCommands(context);
+  registerCommands(context, {
+    bridge,
+    gate,
+    notifier,
+  });
   syncKeybindingContext();
   context.subscriptions.push(
     onDidChangeConfig(() => {
@@ -117,6 +130,8 @@ export function initializeUiInfrastructure(
     }),
   );
 
+  void refreshOfflineState();
+
   return {
     stateStore,
     gate,
@@ -128,6 +143,11 @@ export function initializeUiInfrastructure(
 
 function registerCommands(
   context: vscode.ExtensionContext,
+  deps: {
+    bridge: CommitSmithUIBridge;
+    gate: StepExecutionGate;
+    notifier: CommitSmithNotifier;
+  },
 ): void {
   const focusViewCommand =
     "workbench.view.extension.commitSmith";
@@ -148,9 +168,40 @@ function registerCommands(
   for (const command of placeholderCommands) {
     context.subscriptions.push(
       vscode.commands.registerCommand(command, () => {
-        void vscode.window.showInformationMessage(
-          PLACEHOLDER_MESSAGE,
-        );
+        const step = mapCommandToStep(command);
+        if (step && deps.gate.tryEnter(step)) {
+          const now = new Date();
+          const running: StepStatusEvent = {
+            step,
+            status: "running",
+            blocking: false,
+            startedAt: now.toISOString(),
+            endedAt: null,
+            message: "Placeholder execution",
+          };
+          deps.notifier.stepStarted(step);
+          deps.bridge.postMessage({
+            type: "STEP_STATUS",
+            payload: running,
+          });
+          const finished: StepStatusEvent = {
+            ...running,
+            status: "success",
+            blocking: false,
+            endedAt: new Date().toISOString(),
+            message: "Placeholder complete",
+          };
+          deps.notifier.stepFinished(step, finished);
+          deps.bridge.postMessage({
+            type: "STEP_STATUS",
+            payload: finished,
+          });
+          deps.gate.exit(step);
+        } else if (!step) {
+          void vscode.window.showInformationMessage(
+            PLACEHOLDER_MESSAGE,
+          );
+        }
       }),
     );
   }
@@ -205,5 +256,22 @@ async function refreshOfflineState(): Promise<void> {
     await setOffline(!healthy);
   } catch {
     await setOffline(true);
+  }
+}
+
+function mapCommandToStep(command: string): StepId | undefined {
+  switch (command) {
+    case COMMAND_RUN_FORMAT:
+      return "format";
+    case COMMAND_RUN_LINT:
+      return "lint";
+    case COMMAND_RUN_TYPECHECK:
+      return "typecheck";
+    case COMMAND_RUN_TESTS:
+      return "tests";
+    case COMMAND_ASK_CODEX_REVIEW:
+      return "codexReview";
+    default:
+      return undefined;
   }
 }

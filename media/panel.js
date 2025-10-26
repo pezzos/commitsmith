@@ -38,7 +38,7 @@
     skippable: {},
     skipWarningsDismissed: false,
     repositoryAvailable: true,
-    stepStatuses: {},
+    stepStatus: {},
   };
 
   const controlsRequiringRepo = document.querySelectorAll(
@@ -56,6 +56,40 @@
       chip.textContent = "Idle";
       statusChips.set(stepId, chip);
     });
+
+  const logContainers = new Map();
+  const logContents = new Map();
+  const LOG_PLACEHOLDER = "Logs will appear here once this step runs.";
+  document
+    .querySelectorAll("[data-role='log']")
+    .forEach((element) => {
+      const stepId = element.getAttribute("data-step-id");
+      if (!stepId) {
+        return;
+      }
+      element.dataset.empty = "true";
+      element.textContent = LOG_PLACEHOLDER;
+      logContainers.set(stepId, element);
+      logContents.set(stepId, "");
+    });
+
+  const rerunLastButtons = new Map();
+  document
+    .querySelectorAll("[data-role='rerun-last']")
+    .forEach((button) => {
+      const stepId = button.getAttribute("data-step-id");
+      if (!stepId) {
+        return;
+      }
+      rerunLastButtons.set(stepId, button);
+      button.addEventListener("click", () => {
+        vscode.postMessage({
+          type: "RUN_STEP",
+          payload: { step: stepId },
+        });
+      });
+    });
+  updateRerunButtons();
 
   document
     .querySelectorAll("[data-action='toggle-section']")
@@ -187,6 +221,9 @@
       case "STEP_STATUS":
         applyStepStatus(data.payload);
         break;
+      case "APPEND_LOG":
+        applyLog(data.payload);
+        break;
       default:
         break;
     }
@@ -196,21 +233,29 @@
     if (!newState) {
       return;
     }
-    const previousStatuses = state.stepStatuses || {};
-    Object.assign(state, newState);
-    if (!state.stepStatuses) {
-      state.stepStatuses = previousStatuses;
-    }
+    state.collapsedSections = newState.collapsedSections || {};
+    state.draftMessage = newState.draftMessage || "";
+    state.draftNote = newState.draftNote || "";
+    state.manualNoteOptOut = !!newState.manualNoteOptOut;
+    state.pushAfterCommit = !!newState.pushAfterCommit;
+    state.lastConfidence =
+      typeof newState.lastConfidence === "number"
+        ? newState.lastConfidence
+        : null;
+    state.offline = !!newState.offline;
+    state.skippable = newState.skippable || {};
+    state.skipWarningsDismissed = !!newState.skipWarningsDismissed;
+    state.repositoryAvailable = !!newState.repositoryAvailable;
+    state.stepStatus = newState.stepStatus || {};
     applyOffline(state.offline);
     applyRepositoryAvailability(state.repositoryAvailable);
     applyCollapsedSections(state.collapsedSections || {});
     applyDrafts();
     applySkips(state.skippable || {});
-    if (state.stepStatuses) {
-      Object.values(state.stepStatuses).forEach((status) =>
-        applyStepStatus(status),
-      );
-    }
+    Object.values(state.stepStatus).forEach((status) =>
+      applyStepStatus(status, false),
+    );
+    updateRerunButtons();
   }
 
   function applyOffline(isOffline) {
@@ -342,31 +387,95 @@
       });
   }
 
-  function applyStepStatus(event) {
+  function updateRerunButtons() {
+    rerunLastButtons.forEach((button, stepId) => {
+      const hasStatus =
+        !!state.stepStatus && !!state.stepStatus[stepId];
+      button.disabled = !hasStatus;
+      if (!hasStatus) {
+        button.setAttribute(
+          "title",
+          "Run this step once to enable rerun",
+        );
+        button.setAttribute("aria-disabled", "true");
+      } else {
+        button.removeAttribute("aria-disabled");
+        button.setAttribute("title", "Rerun last command");
+      }
+    });
+  }
+
+  function applyLog(event) {
     if (!event || typeof event !== "object") {
       return;
     }
-    state.stepStatuses[event.step] = event;
+    const container = logContainers.get(event.step);
+    if (!container) {
+      return;
+    }
+    if (event.reset) {
+      logContents.set(event.step, "");
+      container.textContent = LOG_PLACEHOLDER;
+      container.dataset.empty = "true";
+      container.removeAttribute("data-truncated");
+      return;
+    }
+    const current = logContents.get(event.step) ?? "";
+    const next = current + (event.chunk || "");
+    logContents.set(event.step, next);
+    if (next.trim().length === 0) {
+      container.textContent = LOG_PLACEHOLDER;
+      container.dataset.empty = "true";
+    } else {
+      container.textContent = next;
+      container.dataset.empty = "false";
+    }
+    if (event.truncated) {
+      container.dataset.truncated = "true";
+    } else {
+      container.removeAttribute("data-truncated");
+    }
+  }
+
+  function applyStepStatus(event, store = true) {
+    if (!event || typeof event !== "object") {
+      return;
+    }
+    if (store) {
+      state.stepStatus[event.step] = event;
+      updateRerunButtons();
+    }
     const chip = statusChips.get(event.step);
     if (!chip) {
       return;
     }
     const status = event.status;
     chip.dataset.status = status;
+    let label = "Idle";
     switch (status) {
       case "running":
-        chip.textContent = "Running…";
+        label = event.message || "Running…";
         break;
       case "success":
-        chip.textContent = "Success";
+        label = event.message || "Success";
         break;
       case "error":
-        chip.textContent = "Needs attention";
+        label = event.message || "Needs attention";
         break;
       default:
-        chip.textContent = "Idle";
         chip.dataset.status = "idle";
         break;
+    }
+    chip.textContent = label;
+    if (event.tooltip) {
+      chip.title = event.tooltip;
+    } else if (event.message) {
+      chip.title = event.message;
+    } else {
+      chip.removeAttribute("title");
+    }
+    if (!store) {
+      updateRerunButtons();
     }
   }
 })();

@@ -241,15 +241,38 @@ export class CommitSmithViewProvider
         </header>
         <div class="cs-step-content" id="${sectionId}-content">
           <div class="cs-step-actions">
-            <button
-              class="cs-button"
-              type="button"
-              data-role="run-step"
-              data-step-id="${section.step}"
-              data-requires-repo
-            >
-              ${section.buttonLabel}
-            </button>
+            <div class="cs-step-actions__buttons">
+              <button
+                class="cs-button"
+                type="button"
+                data-role="run-step"
+                data-step-id="${section.step}"
+                data-requires-repo
+              >
+                ${section.buttonLabel}
+              </button>
+              <button
+                class="cs-button cs-button--secondary"
+                type="button"
+                data-role="rerun-last"
+                data-step-id="${section.step}"
+                data-requires-repo
+                disabled
+              >
+                Rerun last
+              </button>
+              <button
+                class="cs-button"
+                type="button"
+                data-role="rerun-failed"
+                data-step-id="${section.step}"
+                data-requires-repo
+                disabled
+                title="Runs only failed targets (coming soon)"
+              >
+                Rerun failed only
+              </button>
+            </div>
             <label class="cs-checkbox">
               <input
                 type="checkbox"
@@ -259,7 +282,7 @@ export class CommitSmithViewProvider
               Allow skip
             </label>
           </div>
-          <div class="cs-log-placeholder" tabindex="0">
+          <div class="cs-log" data-role="log" data-step-id="${section.step}" data-empty="true" tabindex="0">
             Logs will appear here once this step runs.
           </div>
         </div>

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { StepId } from "../../shared/types";
+import { StepId, StepStatusEvent } from "../../shared/types";
 
 type CollapsedSections = Record<string, boolean>;
 type SkippableMap = Partial<Record<StepId, boolean>>;
@@ -14,6 +14,7 @@ export interface PersistedUiState {
   readonly offline: boolean;
   readonly skippable: SkippableMap;
   readonly skipWarningsDismissed: boolean;
+  readonly stepStatus: Partial<Record<StepId, StepStatusEvent>>;
 }
 
 type UiStateKey = keyof PersistedUiState;
@@ -30,6 +31,7 @@ const DEFAULT_STATE: PersistedUiState = {
   offline: false,
   skippable: {},
   skipWarningsDismissed: false,
+  stepStatus: {},
 };
 
 export class CommitSmithStateStore implements vscode.Disposable {
@@ -105,10 +107,25 @@ export class CommitSmithStateStore implements vscode.Disposable {
         ...DEFAULT_STATE.skippable,
         ...stored.skippable,
       },
+      stepStatus: {
+        ...DEFAULT_STATE.stepStatus,
+        ...stored.stepStatus,
+      },
     };
   }
 
   private async persist(): Promise<void> {
     await this.memento.update(STORAGE_KEY, this.cache);
+  }
+
+  async setStepStatus(
+    step: StepId,
+    status: StepStatusEvent,
+  ): Promise<void> {
+    const next = {
+      ...this.cache.stepStatus,
+      [step]: status,
+    };
+    await this.update("stepStatus", next);
   }
 }

@@ -13,7 +13,7 @@
   "scripts": {
     "compile": "tsc -p .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:unit": "npm run compile && node ./scripts/test-unit-placeholder.mjs && node ./scripts/test-ui-notifier.mjs && node ./scripts/test-vscode-shim.mjs",
+    "test:unit": "npm run compile && node ./scripts/test-unit-placeholder.mjs && node ./scripts/test-ui-log-buffer.mjs && node ./scripts/test-ui-format-step.mjs && node ./scripts/test-ui-lint-step.mjs && node ./scripts/test-ui-notifier.mjs && node ./scripts/test-vscode-shim.mjs",
     "test:config": "npm run compile && node ./scripts/test-config.mjs",
     "test:git": "node ./scripts/test-git.mjs",
     "test:codex": "node -r ts-node/register ./scripts/test-codex.ts",
@@ -74,6 +74,18 @@
             "default": true,
             "description": "Enable the format command step in the automated pipeline.",
             "order": 11
+          },
+          "commitSmith.lint.command": {
+            "type": "string",
+            "default": "npm run lint",
+            "description": "Command executed for linting.",
+            "order": 15
+          },
+          "commitSmith.lint.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable the lint command step in the automated pipeline.",
+            "order": 16
           },
           "commitSmith.typecheck.command": {
             "type": "string",

@@ -15,6 +15,8 @@ export interface CommitSmithConfig {
   readonly outputShowDebug: boolean;
   readonly formatCommand: string;
   readonly formatEnabled: boolean;
+  readonly lintCommand: string;
+  readonly lintEnabled: boolean;
   readonly typecheckCommand: string;
   readonly typecheckEnabled: boolean;
   readonly testsCommand: string;
@@ -45,6 +47,8 @@ const DEFAULTS: CommitSmithConfig = {
   outputShowDebug: false,
   formatCommand: "npm run format:fix",
   formatEnabled: true,
+  lintCommand: "npm run lint",
+  lintEnabled: true,
   typecheckCommand: "npm run typecheck",
   typecheckEnabled: true,
   testsCommand: "npm test -- -w",
@@ -197,6 +201,14 @@ export function getConfig(): CommitSmithConfig {
     formatEnabled: settings.get<boolean>(
       "format.enabled",
       DEFAULTS.formatEnabled,
+    ),
+    lintCommand: settings.get<string>(
+      "lint.command",
+      DEFAULTS.lintCommand,
+    ),
+    lintEnabled: settings.get<boolean>(
+      "lint.enabled",
+      DEFAULTS.lintEnabled,
     ),
     typecheckCommand: settings.get<string>(
       "typecheck.command",

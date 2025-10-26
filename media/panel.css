@@ -145,13 +145,31 @@
   align-items: center;
 }
 
-.cs-log-placeholder {
-  min-height: 72px;
+.cs-step-actions__buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.cs-log {
+  min-height: 96px;
   padding: 12px;
   border-radius: 6px;
   border: 1px dashed var(--vscode-panel-border);
-  color: var(--vscode-descriptionForeground);
   background-color: rgba(0, 0, 0, 0.02);
+  font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-y: auto;
+}
+
+.cs-log[data-empty="true"] {
+  color: var(--vscode-descriptionForeground);
+}
+
+.cs-log[data-truncated="true"] {
+  border-color: var(--vscode-testing-iconFailed, #ff6b6b);
 }
 
 .cs-status-chip {
@@ -190,6 +208,21 @@
 .cs-button:hover,
 .cs-button:focus-visible {
   background: var(--vscode-button-hoverBackground);
+}
+
+.cs-button--secondary {
+  background: transparent;
+  border: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-button-foreground);
+}
+
+.cs-button--secondary:hover,
+.cs-button--secondary:focus-visible {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.cs-button--secondary[disabled] {
+  background: transparent;
 }
 
 .cs-button[disabled] {

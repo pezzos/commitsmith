@@ -27,7 +27,6 @@ interface PendingToast {
 export class CommitSmithNotifier implements vscode.Disposable {
   private readonly statusItem: vscode.StatusBarItem;
   private lastToastTimestamp = 0;
-  private pendingToast: PendingToast | null = null;
   private readonly telemetry: TelemetryReporter;
   private telemetryEnabled: boolean;
   private readonly telemetryDisposable: vscode.Disposable;
@@ -91,6 +90,11 @@ export class CommitSmithNotifier implements vscode.Disposable {
     this.queueToast({ kind: "warning", message: "Codex returned a low-confidence message." });
   }
 
+  showStepError(step: StepId, message: string): void {
+    this.queueToast({ kind: "error", message });
+    this.setStatus(STATUS_TEMPLATES.error(step));
+  }
+
   resetToIdle(): void {
     this.setStatus(STATUS_TEMPLATES.idle);
   }
@@ -117,7 +121,6 @@ export class CommitSmithNotifier implements vscode.Disposable {
 
   private showToast(toast: PendingToast): void {
     this.lastToastTimestamp = Date.now();
-    this.pendingToast = null;
     switch (toast.kind) {
       case "warning":
         void vscode.window.showWarningMessage(toast.message);

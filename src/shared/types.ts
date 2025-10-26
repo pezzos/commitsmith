@@ -13,6 +13,12 @@ export type StepStatus =
   | "success"
   | "error";
 
+export interface StepSummary {
+  readonly kind: "success" | "error";
+  readonly errorCount?: number;
+  readonly warningCount?: number;
+}
+
 export interface StepStatusEvent {
   readonly step: StepId;
   readonly status: StepStatus;
@@ -20,6 +26,8 @@ export interface StepStatusEvent {
   readonly startedAt: string;
   readonly endedAt: string | null;
   readonly message?: string;
+  readonly tooltip?: string;
+  readonly summary?: StepSummary;
 }
 
 export interface AppendLogEvent {
@@ -27,6 +35,7 @@ export interface AppendLogEvent {
   readonly chunk: string;
   readonly truncated: boolean;
   readonly timestamp: string;
+  readonly reset?: boolean;
 }
 
 export interface JournalEntry {
