@@ -2,11 +2,14 @@ import * as vscode from "vscode";
 import { getConfig, onDidChangeConfig } from "../../config";
 import {
   CommitSmithStateStore,
+  CommitSmithNotifier,
   CommitSmithUIBridge,
   CommitSmithViewProvider,
   RepositorySelector,
   StepExecutionGate,
 } from ".";
+import { UiTelemetryReporter } from "../telemetryReporter";
+import { onCodexOfflineFallback, checkCodexHealth } from "../../codex";
 import { StepId } from "../../shared/types";
 
 const COMMAND_OPEN_PANEL = "commitSmith.openPanel";
@@ -36,6 +39,7 @@ export interface UiInfrastructure {
   readonly bridge: CommitSmithUIBridge;
   readonly gate: StepExecutionGate;
   readonly repositorySelector: RepositorySelector;
+  readonly notifier: CommitSmithNotifier;
 }
 
 export function initializeUiInfrastructure(
@@ -44,18 +48,29 @@ export function initializeUiInfrastructure(
   const stateStore = new CommitSmithStateStore(
     context.workspaceState,
   );
+  currentStateStore = stateStore;
   const gate = new StepExecutionGate();
   const repositorySelector = new RepositorySelector();
   const bridge = new CommitSmithUIBridge({
     extensionUri: context.extensionUri,
     rootAssets: ["media"],
   });
+  const telemetryReporter = new UiTelemetryReporter();
+  const notifier = new CommitSmithNotifier(bridge, telemetryReporter);
 
   context.subscriptions.push(
     stateStore,
     gate,
     repositorySelector,
     bridge,
+    notifier,
+    {
+      dispose: () => {
+        if (currentStateStore === stateStore) {
+          currentStateStore = undefined;
+        }
+      },
+    },
   );
 
   const viewProvider = new CommitSmithViewProvider(context, {
@@ -85,19 +100,29 @@ export function initializeUiInfrastructure(
     }),
   );
 
-  gate.onDidReject(({ step, activeStep }) => {
-    const friendlyStep = formatStepLabel(step);
-    const activeLabel = formatStepLabel(activeStep);
-    void vscode.window.showWarningMessage(
-      `${friendlyStep} cannot start while ${activeLabel} is running.`,
-    );
+  gate.onDidReject(({ activeStep }) => {
+    notifier.showAlreadyRunning(activeStep);
   });
+
+  const offlinePing = setInterval(() => {
+    void refreshOfflineState();
+  }, 30_000);
+  context.subscriptions.push({
+    dispose: () => clearInterval(offlinePing),
+  });
+
+  context.subscriptions.push(
+    onCodexOfflineFallback(() => {
+      void setOffline(true);
+    }),
+  );
 
   return {
     stateStore,
     gate,
     repositorySelector,
     bridge,
+    notifier,
   };
 }
 
@@ -159,4 +184,26 @@ function formatStepLabel(step: StepId): string {
 
 export function getStepDisplayOrder(): readonly StepId[] {
   return STEP_DISPLAY_ORDER;
+}
+
+async function setOffline(value: boolean): Promise<void> {
+  const store = currentStateStore;
+  if (!store) {
+    return;
+  }
+  if (store.get("offline") === value) {
+    return;
+  }
+  await store.update("offline", value);
+}
+
+let currentStateStore: CommitSmithStateStore | undefined;
+
+async function refreshOfflineState(): Promise<void> {
+  try {
+    const healthy = await checkCodexHealth();
+    await setOffline(!healthy);
+  } catch {
+    await setOffline(true);
+  }
 }

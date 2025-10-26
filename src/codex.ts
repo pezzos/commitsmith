@@ -162,6 +162,44 @@ class CodexCliCompatibilityError extends Error {
   }
 }
 
+export async function checkCodexHealth(): Promise<boolean> {
+  const config = getConfig();
+  const binary = resolveCodexBinary(config.codexBinaryPath);
+  try {
+    const outcome = await execCliHealth(
+      binary,
+      Math.min(config.codexTimeoutMs, 10_000),
+    );
+    return outcome;
+  } catch {
+    return false;
+  }
+}
+
+async function execCliHealth(
+  binary: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const child = spawn(binary, ["--help"], {
+      cwd: process.cwd(),
+      stdio: "ignore",
+    });
+    const timeout = setTimeout(() => {
+      child.kill();
+      resolve(false);
+    }, Math.max(timeoutMs, 1_000));
+    child.on("error", () => {
+      clearTimeout(timeout);
+      resolve(false);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      resolve(code === 0);
+    });
+  });
+}
+
 const codexCompatibilityChecks = new Map<
   string,
   Promise<string | undefined>

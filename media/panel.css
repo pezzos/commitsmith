@@ -162,6 +162,21 @@
   color: var(--vscode-descriptionForeground);
 }
 
+.cs-status-chip[data-status="running"] {
+  background: rgba(0, 123, 255, 0.2);
+  color: var(--vscode-editorInfo-foreground, #4fc1ff);
+}
+
+.cs-status-chip[data-status="success"] {
+  background: rgba(0, 153, 102, 0.2);
+  color: var(--vscode-testing-iconPassed, #34d399);
+}
+
+.cs-status-chip[data-status="error"] {
+  background: rgba(255, 99, 71, 0.2);
+  color: var(--vscode-testing-iconFailed, #ff6b6b);
+}
+
 .cs-button {
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);

@@ -38,6 +38,7 @@ export interface CommitSmithConfig {
   readonly validationAllowOverride: boolean;
   readonly logMaskPatterns: readonly string[];
   readonly uiEnableKeybindings: boolean;
+  readonly telemetryEnabled: boolean;
 }
 
 const DEFAULTS: CommitSmithConfig = {
@@ -71,6 +72,7 @@ const DEFAULTS: CommitSmithConfig = {
     "\\b[A-Za-z0-9_-]{40,}\\b",
   ],
   uiEnableKeybindings: true,
+  telemetryEnabled: true,
 };
 
 interface ConfigEmitter<T> {
@@ -302,6 +304,10 @@ export function getConfig(): CommitSmithConfig {
     uiEnableKeybindings: settings.get<boolean>(
       "ui.enableKeybindings",
       DEFAULTS.uiEnableKeybindings,
+    ),
+    telemetryEnabled: settings.get<boolean>(
+      "telemetry.enabled",
+      DEFAULTS.telemetryEnabled,
     ),
   };
 }

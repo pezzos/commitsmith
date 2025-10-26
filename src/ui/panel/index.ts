@@ -11,3 +11,4 @@ export {
 } from "./security";
 export * from "./orchestrator";
 export { CommitSmithViewProvider } from "./viewProvider";
+export { CommitSmithNotifier } from "./notifier";

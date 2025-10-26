@@ -13,7 +13,7 @@
   "scripts": {
     "compile": "tsc -p .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:unit": "npm run compile && node ./scripts/test-unit-placeholder.mjs && node ./scripts/test-vscode-shim.mjs",
+    "test:unit": "npm run compile && node ./scripts/test-unit-placeholder.mjs && node ./scripts/test-ui-notifier.mjs && node ./scripts/test-vscode-shim.mjs",
     "test:config": "npm run compile && node ./scripts/test-config.mjs",
     "test:git": "node ./scripts/test-git.mjs",
     "test:codex": "node -r ts-node/register ./scripts/test-codex.ts",
@@ -261,6 +261,16 @@
             "type": "boolean",
             "default": true,
             "description": "Enable default CommitSmith UI keyboard shortcuts (Format, Lint, Typecheck, Tests, Commit)."
+          }
+        }
+      },
+      {
+        "title": "CommitSmith › Telemetry",
+        "properties": {
+          "commitSmith.telemetry.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Allow CommitSmith UI to send anonymized usage telemetry (step start/finish, commit attempts)."
           }
         }
       }

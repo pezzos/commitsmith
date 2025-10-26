@@ -38,11 +38,24 @@
     skippable: {},
     skipWarningsDismissed: false,
     repositoryAvailable: true,
+    stepStatuses: {},
   };
 
   const controlsRequiringRepo = document.querySelectorAll(
     "[data-requires-repo]",
   );
+  const statusChips = new Map();
+  document
+    .querySelectorAll("[data-role='status-chip']")
+    .forEach((chip) => {
+      const stepId = chip.getAttribute("data-step-id");
+      if (!stepId) {
+        return;
+      }
+      chip.dataset.status = "idle";
+      chip.textContent = "Idle";
+      statusChips.set(stepId, chip);
+    });
 
   document
     .querySelectorAll("[data-action='toggle-section']")
@@ -171,6 +184,9 @@
       case "STATE_SYNC":
         applyState(data.payload);
         break;
+      case "STEP_STATUS":
+        applyStepStatus(data.payload);
+        break;
       default:
         break;
     }
@@ -180,12 +196,21 @@
     if (!newState) {
       return;
     }
+    const previousStatuses = state.stepStatuses || {};
     Object.assign(state, newState);
+    if (!state.stepStatuses) {
+      state.stepStatuses = previousStatuses;
+    }
     applyOffline(state.offline);
     applyRepositoryAvailability(state.repositoryAvailable);
     applyCollapsedSections(state.collapsedSections || {});
     applyDrafts();
     applySkips(state.skippable || {});
+    if (state.stepStatuses) {
+      Object.values(state.stepStatuses).forEach((status) =>
+        applyStepStatus(status),
+      );
+    }
   }
 
   function applyOffline(isOffline) {
@@ -315,5 +340,33 @@
         }
         checkbox.checked = !!skippable[stepId];
       });
+  }
+
+  function applyStepStatus(event) {
+    if (!event || typeof event !== "object") {
+      return;
+    }
+    state.stepStatuses[event.step] = event;
+    const chip = statusChips.get(event.step);
+    if (!chip) {
+      return;
+    }
+    const status = event.status;
+    chip.dataset.status = status;
+    switch (status) {
+      case "running":
+        chip.textContent = "Running…";
+        break;
+      case "success":
+        chip.textContent = "Success";
+        break;
+      case "error":
+        chip.textContent = "Needs attention";
+        break;
+      default:
+        chip.textContent = "Idle";
+        chip.dataset.status = "idle";
+        break;
+    }
   }
 })();
