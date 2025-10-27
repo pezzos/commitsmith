@@ -21,6 +21,17 @@
               },
               "message": {
                 "type": "string"
+              },
+              "ts": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": ["codex", "pipeline", "manual"]
+              },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": true
               }
             },
             "required": ["message"]

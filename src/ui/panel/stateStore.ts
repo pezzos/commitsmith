@@ -1,5 +1,10 @@
 import * as vscode from "vscode";
-import { StepId, StepStatusEvent } from "../../shared/types";
+import {
+  CodexReviewSnapshot,
+  JournalEntry,
+  StepId,
+  StepStatusEvent,
+} from "../../shared/types";
 
 type CollapsedSections = Record<string, boolean>;
 type SkippableMap = Partial<Record<StepId, boolean>>;
@@ -11,9 +16,11 @@ export interface PersistedUiState {
   readonly manualNoteOptOut: boolean;
   readonly pushAfterCommit: boolean;
   readonly lastConfidence: number | null;
+  readonly codexReview: CodexReviewSnapshot | null;
   readonly offline: boolean;
   readonly skippable: SkippableMap;
   readonly skipWarningsDismissed: boolean;
+  readonly journalEntries: readonly JournalEntry[];
   readonly stepStatus: Partial<Record<StepId, StepStatusEvent>>;
 }
 
@@ -28,9 +35,11 @@ const DEFAULT_STATE: PersistedUiState = {
   manualNoteOptOut: false,
   pushAfterCommit: false,
   lastConfidence: null,
+  codexReview: null,
   offline: false,
   skippable: {},
   skipWarningsDismissed: false,
+  journalEntries: [],
   stepStatus: {},
 };
 
@@ -89,9 +98,7 @@ export class CommitSmithStateStore implements vscode.Disposable {
   }
 
   private load(): PersistedUiState {
-    const stored = this.memento.get<PersistedUiState>(
-      STORAGE_KEY,
-    );
+    const stored = this.memento.get<PersistedUiState>(STORAGE_KEY);
     if (!stored) {
       return { ...DEFAULT_STATE };
     }
@@ -99,10 +106,24 @@ export class CommitSmithStateStore implements vscode.Disposable {
     return {
       ...DEFAULT_STATE,
       ...stored,
+      codexReview: stored.codexReview
+        ? {
+            source: stored.codexReview.source,
+            text: stored.codexReview.text,
+            confidence:
+              typeof stored.codexReview.confidence === "number"
+                ? stored.codexReview.confidence
+                : null,
+            ts: stored.codexReview.ts,
+          }
+        : DEFAULT_STATE.codexReview,
       collapsedSections: {
         ...DEFAULT_STATE.collapsedSections,
         ...stored.collapsedSections,
       },
+      journalEntries: Array.isArray(stored.journalEntries)
+        ? stored.journalEntries.slice()
+        : DEFAULT_STATE.journalEntries.slice(),
       skippable: {
         ...DEFAULT_STATE.skippable,
         ...stored.skippable,

@@ -4,8 +4,13 @@ import { getConfig, onDidChangeConfig } from "../../config";
 
 const MASK_REPLACEMENT = "••••";
 
-function compilePatterns(patterns: readonly string[]): RegExp[] {
+function compilePatterns(
+  patterns: readonly string[] | undefined,
+): RegExp[] {
   const compiled: RegExp[] = [];
+  if (!Array.isArray(patterns)) {
+    return compiled;
+  }
   for (const candidate of patterns) {
     let source = candidate;
     let flags = "g";
@@ -59,7 +64,7 @@ export function createContentSecurityPolicy(
 ): string {
   const source = webview.cspSource;
   return [
-    "<meta http-equiv=\"Content-Security-Policy\"",
+    '<meta http-equiv="Content-Security-Policy"',
     `content="default-src 'none';`,
     ` img-src ${source};`,
     ` style-src ${source};`,

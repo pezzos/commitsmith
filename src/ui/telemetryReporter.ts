@@ -7,7 +7,10 @@ export interface TelemetryReporter {
 export class UiTelemetryReporter implements TelemetryReporter {
   constructor(private readonly schema = "ui.panel") {}
 
-  track(event: string, properties: Record<string, unknown> = {}): void {
+  track(
+    event: string,
+    properties: Record<string, unknown> = {},
+  ): void {
     const serialized: Record<string, string> = {};
     for (const [key, value] of Object.entries(properties)) {
       serialized[key] = String(value);

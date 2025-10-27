@@ -102,28 +102,30 @@ function createHarness(options = {}) {
   const stateStore = new CommitSmithStateStore(new InMemoryMemento());
   const gate = new StepExecutionGate();
   const notifier = createNotifierStub();
-  const orchestrator =
-    options.orchestrator ??
-    {
-      async runTests(onLog) {
-        onLog("running suites…\n");
-        onLog("Tests: 3 passed, 3 total\n");
-        const now = new Date().toISOString();
-        return {
-          success: true,
-          blocking: false,
-          startedAt: now,
-          finishedAt: now,
-          stepSummary: { kind: "success", errorCount: 0, warningCount: 0 },
-          summary: {
-            total: 3,
-            passed: 3,
-            failed: 0,
-            durationMs: 1_234,
-          },
-        };
-      },
-    };
+  const orchestrator = options.orchestrator ?? {
+    async runTests(onLog) {
+      onLog("running suites…\n");
+      onLog("Tests: 3 passed, 3 total\n");
+      const now = new Date().toISOString();
+      return {
+        success: true,
+        blocking: false,
+        startedAt: now,
+        finishedAt: now,
+        stepSummary: {
+          kind: "success",
+          errorCount: 0,
+          warningCount: 0,
+        },
+        summary: {
+          total: 3,
+          passed: 3,
+          failed: 0,
+          durationMs: 1_234,
+        },
+      };
+    },
+  };
   const controller = new StepController({
     stateStore,
     bridge,
@@ -140,7 +142,8 @@ function createHarness(options = {}) {
 }
 
 async function runSummaryScenario() {
-  const { controller, notifier, stateStore, messages } = createHarness();
+  const { controller, notifier, stateStore, messages } =
+    createHarness();
   await controller.handleRunStep("tests");
   controller.dispose();
 

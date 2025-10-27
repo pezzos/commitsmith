@@ -10,11 +10,7 @@ import { StateSnapshot, UiIncomingMessage } from "./bridge";
 
 const VIEW_ID = "commitSmith.panel";
 
-type SectionId =
-  | `step.${StepId}`
-  | "journal"
-  | "manual"
-  | "commit";
+type SectionId = `step.${StepId}` | "journal" | "manual" | "commit";
 
 interface UiInfrastructureDeps {
   readonly stateStore: CommitSmithStateStore;
@@ -117,13 +113,9 @@ export class CommitSmithViewProvider
       case "SET_SECTION_COLLAPSED": {
         const next = {
           ...this.deps.stateStore.get("collapsedSections"),
-          [message.payload.sectionId]:
-            message.payload.collapsed,
+          [message.payload.sectionId]: message.payload.collapsed,
         };
-        await this.deps.stateStore.update(
-          "collapsedSections",
-          next,
-        );
+        await this.deps.stateStore.update("collapsedSections", next);
         break;
       }
       case "UPDATE_DRAFT_MESSAGE": {
@@ -262,6 +254,20 @@ export class CommitSmithViewProvider
             Load more logs
           </button>`
       : "";
+    const codexReviewPanel =
+      section.step === "codexReview"
+        ? `
+          <div class="cs-review" data-role="codex-review" data-source="codex">
+            <div class="cs-review-meta">
+              <span class="cs-badge cs-review-source" data-role="codex-source">AI</span>
+              <span class="cs-review-confidence" data-role="codex-confidence" hidden></span>
+              <time class="cs-review-timestamp" data-role="codex-timestamp" hidden></time>
+            </div>
+            <p class="cs-review-text" data-role="codex-review-text" aria-live="polite">
+              Ask Codex Review to see insights here.
+            </p>
+          </div>`
+        : "";
     return `
       <article class="cs-step-card" data-section-id="${sectionId}">
         <header class="cs-step-header">
@@ -278,11 +284,11 @@ export class CommitSmithViewProvider
           </button>
           <span class="cs-status-chip" data-role="status-chip" data-step-id="${section.step}" aria-live="polite">Idle</span>
         </header>
-        <div class="cs-step-content" id="${sectionId}-content">
-          <div class="cs-step-actions">
-            <div class="cs-step-actions__buttons">
-              <button
-                class="cs-button"
+          <div class="cs-step-content" id="${sectionId}-content">
+            <div class="cs-step-actions">
+              <div class="cs-step-actions__buttons">
+                <button
+                  class="cs-button"
                 type="button"
                 data-role="run-step"
                 data-step-id="${section.step}"
@@ -312,21 +318,22 @@ export class CommitSmithViewProvider
                 Rerun failed only
               </button>
               ${cancelControl}
+              </div>
+              <label class="cs-checkbox">
+                <input
+                  type="checkbox"
+                  data-role="skip-step"
+                  data-step-id="${section.step}"
+                />
+                Allow skip
+              </label>
             </div>
-            <label class="cs-checkbox">
-              <input
-                type="checkbox"
-                data-role="skip-step"
-                data-step-id="${section.step}"
-              />
-              Allow skip
-            </label>
-          </div>
-          <div class="cs-log-container">
-            <div class="cs-log" data-role="log" data-step-id="${section.step}" data-empty="true" tabindex="0">
-              Logs will appear here once this step runs.
-            </div>
-            ${logPaginationControl}
+            ${codexReviewPanel}
+            <div class="cs-log-container">
+              <div class="cs-log" data-role="log" data-step-id="${section.step}" data-empty="true" tabindex="0">
+                Logs will appear here once this step runs.
+              </div>
+              ${logPaginationControl}
           </div>
         </div>
       </article>

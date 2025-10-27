@@ -155,7 +155,10 @@ export class StepLogBuffer {
   getHistory(
     beforeHash?: string,
     limit = 50,
-  ): { readonly entries: AppendLogEvent[]; readonly hasMore: boolean } {
+  ): {
+    readonly entries: AppendLogEvent[];
+    readonly hasMore: boolean;
+  } {
     if (this.history.length === 0 || limit <= 0) {
       return { entries: [], hasMore: false };
     }

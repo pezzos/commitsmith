@@ -164,7 +164,10 @@
   border-radius: 6px;
   border: 1px dashed var(--vscode-panel-border);
   background-color: rgba(0, 0, 0, 0.02);
-  font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
+  font-family: var(
+    --vscode-editor-font-family,
+    var(--vscode-font-family)
+  );
   font-size: 12px;
   white-space: pre-wrap;
   overflow-y: auto;
@@ -263,6 +266,74 @@
   gap: 6px;
 }
 
+.cs-review {
+  border: 1px solid rgba(103, 114, 255, 0.35);
+  border-radius: 6px;
+  padding: 12px;
+  background: rgba(103, 114, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cs-review[data-source="heuristic"] {
+  border-color: rgba(255, 196, 0, 0.45);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 196, 0, 0.18) 0%,
+    rgba(255, 196, 0, 0.08) 100%
+  );
+}
+
+.cs-review[data-source="empty"] {
+  border-style: dashed;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.cs-review-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cs-review-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.cs-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  height: 18px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cs-review-source {
+  background: rgba(103, 114, 255, 0.35);
+  color: var(--vscode-foreground);
+}
+
+.cs-review[data-source="heuristic"] .cs-review-source {
+  background: rgba(255, 196, 0, 0.6);
+}
+
+.cs-review-confidence,
+.cs-review-timestamp {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
 .cs-field {
   display: grid;
   gap: 6px;
@@ -307,8 +378,66 @@
   list-style: none;
   padding: 0;
   margin: 0;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+}
+
+.cs-journal-entry {
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--vscode-editor-background);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cs-journal-entry[data-source="codex"] {
+  border-color: rgba(103, 114, 255, 0.45);
+}
+
+.cs-journal-entry[data-source="pipeline"] {
+  border-color: rgba(0, 164, 255, 0.45);
+}
+
+.cs-journal-entry[data-source="manual"] {
+  border-color: rgba(0, 200, 83, 0.45);
+}
+
+.cs-journal-entry__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cs-journal-entry__text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.cs-journal-confidence,
+.cs-journal-timestamp {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cs-journal-badge {
+  background: rgba(103, 114, 255, 0.28);
+  color: var(--vscode-foreground);
+}
+
+.cs-journal-entry[data-source="pipeline"] .cs-journal-badge {
+  background: rgba(0, 164, 255, 0.28);
+}
+
+.cs-journal-entry[data-source="manual"] .cs-journal-badge {
+  background: rgba(0, 200, 83, 0.28);
 }
 
 .cs-journal-empty {
@@ -324,8 +453,7 @@
   display: none;
 }
 
-.cs-step-card[data-collapsed="true"]
-  .cs-section-toggle {
+.cs-step-card[data-collapsed="true"] .cs-section-toggle {
   aria-expanded: false;
 }
 

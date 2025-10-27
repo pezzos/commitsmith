@@ -185,10 +185,13 @@ async function execCliHealth(
       cwd: process.cwd(),
       stdio: "ignore",
     });
-    const timeout = setTimeout(() => {
-      child.kill();
-      resolve(false);
-    }, Math.max(timeoutMs, 1_000));
+    const timeout = setTimeout(
+      () => {
+        child.kill();
+        resolve(false);
+      },
+      Math.max(timeoutMs, 1_000),
+    );
     child.on("error", () => {
       clearTimeout(timeout);
       resolve(false);

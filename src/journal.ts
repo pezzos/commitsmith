@@ -7,6 +7,9 @@ import Ajv, { ValidateFunction } from "ajv";
 export interface JournalEntry {
   readonly file?: string;
   readonly message: string;
+  readonly ts?: string;
+  readonly source?: "codex" | "pipeline" | "manual";
+  readonly metadata?: Record<string, unknown>;
 }
 
 export interface JournalMeta {
@@ -225,6 +228,9 @@ function normalizeEntry(entry: unknown): JournalEntry | undefined {
 
   const rawMessage = (entry as { message?: unknown }).message;
   const rawFile = (entry as { file?: unknown }).file;
+  const rawTs = (entry as { ts?: unknown }).ts;
+  const rawSource = (entry as { source?: unknown }).source;
+  const rawMetadata = (entry as { metadata?: unknown }).metadata;
   if (typeof rawMessage !== "string") {
     return undefined;
   }
@@ -238,7 +244,28 @@ function normalizeEntry(entry: unknown): JournalEntry | undefined {
       ? rawFile.trim()
       : undefined;
 
-  return file ? { message, file } : { message };
+  const ts =
+    typeof rawTs === "string" && rawTs.trim().length > 0
+      ? rawTs.trim()
+      : undefined;
+  const source =
+    rawSource === "codex" ||
+    rawSource === "pipeline" ||
+    rawSource === "manual"
+      ? rawSource
+      : undefined;
+  const metadata =
+    rawMetadata && typeof rawMetadata === "object"
+      ? { ...(rawMetadata as Record<string, unknown>) }
+      : undefined;
+
+  return {
+    message,
+    ...(file ? { file } : {}),
+    ...(ts ? { ts } : {}),
+    ...(source ? { source } : {}),
+    ...(metadata ? { metadata } : {}),
+  };
 }
 
 function normalizeJournalEntries(entries: unknown[]): JournalEntry[] {

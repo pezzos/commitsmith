@@ -9,7 +9,10 @@ import {
   CommitSmithNotifier,
 } from ".";
 import {
+  CodexReviewResult,
+  CodexReviewSnapshot,
   InfraError,
+  JournalEntry,
   OfflineError,
   StepId,
   StepStatusEvent,
@@ -26,9 +29,18 @@ import {
   formatTimeoutForStep,
   normalizeError,
   OrchestratorCommands,
+  withTimeout,
 } from "./orchestrator";
 
 const LOG_HISTORY_PAGE_SIZE = 50;
+const JOURNAL_MAX_ENTRIES = 50;
+const FALLBACK_REVIEW_MESSAGE =
+  "Codex is offline. Review format, lint, typecheck, and test results manually before committing.";
+
+type CodexReviewOutcome =
+  | { kind: "success"; snapshot: CodexReviewSnapshot }
+  | { kind: "offline"; reason: string }
+  | { kind: "error"; error: Error };
 
 type CommandStep = "format" | "lint" | "typecheck" | "tests";
 
@@ -37,12 +49,25 @@ interface StepCopy {
   readonly noun: string;
 }
 
-const COMMAND_STEP_COPY: Record<CommandStep, StepCopy> = {
+const STEP_COPY: Record<StepId, StepCopy> = {
   format: { label: "Format", noun: "formatter" },
   lint: { label: "Lint", noun: "linter" },
   typecheck: { label: "Typecheck", noun: "typechecker" },
   tests: { label: "Tests", noun: "test runner" },
+  codexReview: { label: "Codex Review", noun: "Codex review" },
 };
+
+const COMMAND_STEP_COPY: Record<CommandStep, StepCopy> = {
+  format: STEP_COPY.format,
+  lint: STEP_COPY.lint,
+  typecheck: STEP_COPY.typecheck,
+  tests: STEP_COPY.tests,
+};
+
+type PanelOrchestrator = Pick<
+  OrchestratorCommands,
+  "runTypecheck" | "runTests" | "askCodexReview"
+>;
 
 interface StepControllerDeps {
   readonly stateStore: CommitSmithStateStore;
@@ -50,20 +75,14 @@ interface StepControllerDeps {
   readonly gate: StepExecutionGate;
   readonly repositorySelector: RepositorySelector;
   readonly notifier: CommitSmithNotifier;
-  readonly orchestrator?: Pick<
-    OrchestratorCommands,
-    "runTypecheck" | "runTests"
-  >;
+  readonly orchestrator?: PanelOrchestrator;
 }
 
 export class StepController implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly logBuffers = new Map<StepId, StepLogBuffer>();
   private readonly masker = new SecretMasker();
-  private readonly orchestrator?: Pick<
-    OrchestratorCommands,
-    "runTypecheck" | "runTests"
-  >;
+  private readonly orchestrator?: PanelOrchestrator;
 
   constructor(private readonly deps: StepControllerDeps) {
     this.orchestrator = deps.orchestrator;
@@ -96,126 +115,140 @@ export class StepController implements vscode.Disposable {
       return;
     }
 
-    if (!isCommandStep(step)) {
-      void vscode.window.showInformationMessage(
-        `${describeStep(step)} step is not yet implemented.`,
-      );
-      this.deps.gate.exit(step);
-      return;
-    }
-
-    const copy = COMMAND_STEP_COPY[step];
-    const skippable = this.deps.stateStore.get("skippable") ?? {};
+    const copy = STEP_COPY[step];
     const buffer = this.getLogBuffer(step);
     buffer.reset();
 
-    if (skippable[step]) {
-      buffer.append(`Skipping ${copy.label} (allow skip enabled).\n`);
-      buffer.close();
-      const now = new Date();
-      const event: StepStatusEvent = {
-        step,
-        status: "success",
-        blocking: false,
-        startedAt: now.toISOString(),
-        endedAt: now.toISOString(),
-        message: "Skipped (Allow skip enabled)",
-        tooltip: "Skipped (allow skip enabled)",
-      };
-      await this.deps.stateStore.setStepStatus(step, event);
-      this.deps.bridge.postMessage({
-        type: "STEP_STATUS",
-        payload: event,
-      });
-      this.deps.notifier.stepFinished(step, event);
-      this.deps.gate.exit(step);
-      return;
-    }
-
-    const startedAt = new Date();
-    const repo = this.deps.repositorySelector.active;
-    if (!repo) {
-      await this.handleFailure(step, startedAt, new InfraError("Select a repository to run CommitSmith."), {
-        label: copy.label,
-        timeoutMs: formatTimeoutForStep(step),
-      });
-      this.deps.gate.exit(step);
-      return;
-    }
-
-    const config = getConfig();
-    const command = this.getCommandForStep(step, config).trim();
-    const timeoutMs = formatTimeoutForStep(step);
-
-    if (command.length === 0) {
-      buffer.append(`${copy.label} command is not configured.\n`);
-      buffer.close();
-      await this.handleSuccess(step, startedAt, {
-        label: copy.label,
-        skipped: true,
-        skipMessage: `Skipped (no ${copy.noun} configured)`,
-      });
-      this.deps.gate.exit(step);
-      return;
-    }
-
-    buffer.append(`$ ${command}\n`);
-    const runningEvent: StepStatusEvent = {
-      step,
-      status: "running",
-      blocking: true,
-      startedAt: startedAt.toISOString(),
-      endedAt: null,
-      message: `Running ${copy.label}…`,
-      tooltip: `Running ${copy.label}…`,
-    };
-    await this.deps.stateStore.setStepStatus(step, runningEvent);
-    this.deps.bridge.postMessage({
-      type: "STEP_STATUS",
-      payload: runningEvent,
-    });
-    this.deps.notifier.stepStarted(step);
-
     try {
-      if (step === "typecheck") {
-        await this.runTypecheckStep({
-          startedAt,
-          buffer,
-          copy,
-          timeoutMs,
-        });
-      } else if (step === "tests") {
-        await this.runTestsStep({
-          startedAt,
-          buffer,
-          copy,
-          timeoutMs,
-        });
-      } else {
-        await this.executeCommand(
-          step,
-          command,
-          repo.rootUri.fsPath,
-          buffer,
-          timeoutMs,
-          copy,
+      const skippable = this.deps.stateStore.get("skippable") ?? {};
+      if (skippable[step]) {
+        buffer.append(
+          `Skipping ${copy.label} (allow skip enabled).\n`,
         );
+        buffer.close();
+        const now = new Date();
+        const event: StepStatusEvent = {
+          step,
+          status: "success",
+          blocking: false,
+          startedAt: now.toISOString(),
+          endedAt: now.toISOString(),
+          message: "Skipped (Allow skip enabled)",
+          tooltip: "Skipped (allow skip enabled)",
+        };
+        await this.deps.stateStore.setStepStatus(step, event);
+        this.deps.bridge.postMessage({
+          type: "STEP_STATUS",
+          payload: event,
+        });
+        this.deps.notifier.stepFinished(step, event);
+        return;
+      }
+
+      const startedAt = new Date();
+      const repo = this.deps.repositorySelector.active;
+      if (!repo) {
+        await this.handleFailure(
+          step,
+          startedAt,
+          new InfraError("Select a repository to run CommitSmith."),
+          {
+            label: copy.label,
+            timeoutMs: formatTimeoutForStep(step),
+          },
+        );
+        return;
+      }
+
+      if (step === "codexReview") {
+        await this.runCodexReviewStep({
+          startedAt,
+          copy,
+          timeoutMs: formatTimeoutForStep(step),
+        });
+        return;
+      }
+
+      if (!isCommandStep(step)) {
+        void vscode.window.showInformationMessage(
+          `${describeStep(step)} step is not yet implemented.`,
+        );
+        return;
+      }
+
+      const config = getConfig();
+      const command = this.getCommandForStep(step, config).trim();
+      const timeoutMs = formatTimeoutForStep(step);
+
+      if (command.length === 0) {
+        buffer.append(`${copy.label} command is not configured.\n`);
         buffer.close();
         await this.handleSuccess(step, startedAt, {
           label: copy.label,
-          skipped: false,
-          summary: this.createSuccessSummary(step),
+          skipped: true,
+          skipMessage: `Skipped (no ${copy.noun} configured)`,
+        });
+        return;
+      }
+
+      buffer.append(`$ ${command}\n`);
+      const runningEvent: StepStatusEvent = {
+        step,
+        status: "running",
+        blocking: true,
+        startedAt: startedAt.toISOString(),
+        endedAt: null,
+        message: `Running ${copy.label}…`,
+        tooltip: `Running ${copy.label}…`,
+      };
+      await this.deps.stateStore.setStepStatus(step, runningEvent);
+      this.deps.bridge.postMessage({
+        type: "STEP_STATUS",
+        payload: runningEvent,
+      });
+      this.deps.notifier.stepStarted(step);
+
+      try {
+        if (step === "typecheck") {
+          await this.runTypecheckStep({
+            startedAt,
+            buffer,
+            copy,
+            timeoutMs,
+          });
+        } else if (step === "tests") {
+          await this.runTestsStep({
+            startedAt,
+            buffer,
+            copy,
+            timeoutMs,
+          });
+        } else {
+          await this.executeCommand(
+            step,
+            command,
+            repo.rootUri.fsPath,
+            buffer,
+            timeoutMs,
+            copy,
+          );
+          buffer.close();
+          await this.handleSuccess(step, startedAt, {
+            label: copy.label,
+            skipped: false,
+            summary: this.createSuccessSummary(step),
+          });
+        }
+      } catch (error) {
+        buffer.append(
+          `\n${normalizeError(error, `${copy.label} failed`).message}\n`,
+        );
+        buffer.close();
+        await this.handleFailure(step, startedAt, error, {
+          label: copy.label,
+          timeoutMs,
         });
       }
-    } catch (error) {
-      buffer.append(
-        `\n${normalizeError(error, `${copy.label} failed`).message}\n`,
-      );
-      buffer.close();
-      await this.handleFailure(step, startedAt, error, {
-        label: copy.label,
-        timeoutMs,
-      });
     } finally {
       this.deps.gate.exit(step);
     }
@@ -230,19 +263,25 @@ export class StepController implements vscode.Disposable {
       skipMessage?: string;
       summary?: StepSummary;
       testSummary?: TestSummary;
+      message?: string;
+      tooltip?: string;
     },
   ): Promise<void> {
     const endedAt = new Date();
     const duration = endedAt.getTime() - startedAt.getTime();
     const completedMessage = `Completed in ${formatDuration(duration)}`;
     const message = context.skipped
-      ? context.skipMessage ?? `Skipped (${context.label} disabled)`
-      : completedMessage;
-    const tooltip = context.skipped ? message : completedMessage;
+      ? (context.skipMessage ?? `Skipped (${context.label} disabled)`)
+      : (context.message ?? completedMessage);
+    const tooltip = context.skipped
+      ? (context.skipMessage ?? message)
+      : (context.tooltip ?? completedMessage);
     const summary: StepSummary | undefined = context.skipped
       ? undefined
-      : context.summary ?? this.createSuccessSummary(step);
-    const testSummary = context.skipped ? undefined : context.testSummary;
+      : (context.summary ?? this.createSuccessSummary(step));
+    const testSummary = context.skipped
+      ? undefined
+      : context.testSummary;
     const event: StepStatusEvent = {
       step,
       status: "success",
@@ -341,7 +380,9 @@ export class StepController implements vscode.Disposable {
   }): Promise<void> {
     const orchestrator = this.orchestrator;
     if (!orchestrator?.runTests) {
-      options.buffer.append("\nTests orchestrator is not available.\n");
+      options.buffer.append(
+        "\nTests orchestrator is not available.\n",
+      );
       options.buffer.close();
       await this.handleFailure(
         "tests",
@@ -363,8 +404,15 @@ export class StepController implements vscode.Disposable {
           options.buffer.append(chunk);
         },
       );
-      const durationMs = this.resolveDuration(options.startedAt, result.finishedAt);
-      const summary = this.resolveTestSummary(parser, result, durationMs);
+      const durationMs = this.resolveDuration(
+        options.startedAt,
+        result.finishedAt,
+      );
+      const summary = this.resolveTestSummary(
+        parser,
+        result,
+        durationMs,
+      );
       if (summary) {
         this.appendTestSummary(options.buffer, summary);
       }
@@ -373,20 +421,32 @@ export class StepController implements vscode.Disposable {
         await this.handleSuccess("tests", options.startedAt, {
           label: options.copy.label,
           skipped: false,
-          summary: this.resolveSummaryFromPipeline("tests", result.stepSummary),
+          summary: this.resolveSummaryFromPipeline(
+            "tests",
+            result.stepSummary,
+          ),
           testSummary: summary,
         });
       } else {
-        const pipelineError = result.error ?? new InfraError("Tests failed");
-        await this.handleFailure("tests", options.startedAt, pipelineError, {
-          label: options.copy.label,
-          timeoutMs: options.timeoutMs,
-          summary: result.stepSummary,
-          testSummary: summary,
-        });
+        const pipelineError =
+          result.error ?? new InfraError("Tests failed");
+        await this.handleFailure(
+          "tests",
+          options.startedAt,
+          pipelineError,
+          {
+            label: options.copy.label,
+            timeoutMs: options.timeoutMs,
+            summary: result.stepSummary,
+            testSummary: summary,
+          },
+        );
       }
     } catch (error) {
-      const normalized = normalizeError(error, `${options.copy.label} failed`);
+      const normalized = normalizeError(
+        error,
+        `${options.copy.label} failed`,
+      );
       options.buffer.append(`\n${normalized.message}\n`);
       options.buffer.close();
       await this.handleFailure("tests", options.startedAt, error, {
@@ -394,6 +454,243 @@ export class StepController implements vscode.Disposable {
         timeoutMs: options.timeoutMs,
       });
     }
+  }
+
+  private async runCodexReviewStep(options: {
+    readonly startedAt: Date;
+    readonly copy: StepCopy;
+    readonly timeoutMs: number;
+  }): Promise<void> {
+    const orchestrator = this.orchestrator;
+    if (
+      !orchestrator ||
+      typeof orchestrator.askCodexReview !== "function"
+    ) {
+      await this.handleFailure(
+        "codexReview",
+        options.startedAt,
+        new InfraError("Codex review orchestrator unavailable."),
+        {
+          label: options.copy.label,
+          timeoutMs: options.timeoutMs,
+        },
+      );
+      return;
+    }
+
+    const runningEvent: StepStatusEvent = {
+      step: "codexReview",
+      status: "running",
+      blocking: true,
+      startedAt: options.startedAt.toISOString(),
+      endedAt: null,
+      message: "Requesting Codex review…",
+      tooltip: "Requesting Codex review…",
+    };
+    await this.deps.stateStore.setStepStatus(
+      "codexReview",
+      runningEvent,
+    );
+    this.deps.bridge.postMessage({
+      type: "STEP_STATUS",
+      payload: runningEvent,
+    });
+    this.deps.notifier.stepStarted("codexReview");
+
+    let attempt = 0;
+    let lastError: unknown;
+
+    while (attempt < 2) {
+      attempt += 1;
+      try {
+        const result: CodexReviewResult = await withTimeout(
+          orchestrator.askCodexReview(),
+          options.timeoutMs,
+          options.copy.label,
+        );
+        const outcome = this.normalizeCodexReviewResult(result);
+        if (outcome.kind === "success") {
+          await this.applyCodexReviewSuccess(
+            options.startedAt,
+            options.copy,
+            outcome.snapshot,
+          );
+          return;
+        }
+        if (outcome.kind === "offline") {
+          await this.applyCodexReviewFallback(
+            options.startedAt,
+            options.copy,
+            outcome.reason,
+          );
+          return;
+        }
+        lastError = outcome.error;
+      } catch (error) {
+        if (
+          error instanceof OfflineError ||
+          error instanceof TimeoutError
+        ) {
+          await this.applyCodexReviewFallback(
+            options.startedAt,
+            options.copy,
+            error.message,
+          );
+          return;
+        }
+        lastError = error;
+      }
+    }
+
+    await this.handleFailure(
+      "codexReview",
+      options.startedAt,
+      lastError ?? new InfraError("Codex review failed"),
+      {
+        label: options.copy.label,
+        timeoutMs: options.timeoutMs,
+      },
+    );
+  }
+
+  private normalizeCodexReviewResult(
+    result: CodexReviewResult,
+  ): CodexReviewOutcome {
+    if (result.success) {
+      const trimmed =
+        typeof result.text === "string" ? result.text.trim() : "";
+      if (trimmed.length === 0) {
+        return {
+          kind: "error",
+          error: new InfraError(
+            "Codex review returned empty feedback.",
+          ),
+        };
+      }
+      const confidence =
+        typeof result.confidence === "number"
+          ? Math.max(0, Math.min(1, result.confidence))
+          : null;
+      const ts =
+        typeof result.ts === "string" && result.ts.length > 0
+          ? result.ts
+          : new Date().toISOString();
+      return {
+        kind: "success",
+        snapshot: {
+          source: "codex",
+          text: trimmed,
+          confidence,
+          ts,
+        },
+      };
+    }
+
+    if (result.error) {
+      if (
+        result.error instanceof OfflineError ||
+        result.error instanceof TimeoutError
+      ) {
+        return { kind: "offline", reason: result.error.message };
+      }
+      return { kind: "error", error: result.error };
+    }
+
+    return {
+      kind: "error",
+      error: new InfraError("Codex review failed"),
+    };
+  }
+
+  private async applyCodexReviewSuccess(
+    startedAt: Date,
+    copy: StepCopy,
+    snapshot: CodexReviewSnapshot,
+  ): Promise<void> {
+    await this.persistCodexReviewSnapshot(snapshot, {
+      offline: false,
+    });
+    const entry: JournalEntry = {
+      ts: snapshot.ts,
+      source: "codex",
+      text: snapshot.text,
+      message: snapshot.text,
+      metadata:
+        snapshot.confidence !== null
+          ? { confidence: snapshot.confidence }
+          : undefined,
+    };
+    await this.appendJournalEntry(entry);
+    await this.handleSuccess("codexReview", startedAt, {
+      label: copy.label,
+      skipped: false,
+      summary: this.createSuccessSummary("codexReview"),
+      message: "Review ready",
+      tooltip: "Codex insights ready",
+    });
+  }
+
+  private async applyCodexReviewFallback(
+    startedAt: Date,
+    copy: StepCopy,
+    _reason: string,
+  ): Promise<void> {
+    const snapshot: CodexReviewSnapshot = {
+      source: "heuristic",
+      text: FALLBACK_REVIEW_MESSAGE,
+      confidence: null,
+      ts: new Date().toISOString(),
+    };
+    await this.persistCodexReviewSnapshot(snapshot, {
+      offline: true,
+    });
+    await this.handleSuccess("codexReview", startedAt, {
+      label: copy.label,
+      skipped: false,
+      summary: this.createSuccessSummary("codexReview"),
+      message: "Using fallback guidance",
+      tooltip: "Codex offline—using heuristic review",
+    });
+  }
+
+  private async persistCodexReviewSnapshot(
+    snapshot: CodexReviewSnapshot,
+    options: { offline?: boolean } = {},
+  ): Promise<void> {
+    const updates: {
+      codexReview: CodexReviewSnapshot;
+      lastConfidence: number | null;
+      offline?: boolean;
+    } = {
+      codexReview: snapshot,
+      lastConfidence: snapshot.confidence,
+    };
+    if (typeof options.offline === "boolean") {
+      updates.offline = options.offline;
+    }
+    await this.deps.stateStore.updateMany(updates);
+    this.deps.bridge.postMessage({
+      type: "REVIEW_RESULT",
+      payload: snapshot,
+    });
+  }
+
+  private async appendJournalEntry(
+    entry: JournalEntry,
+  ): Promise<void> {
+    const existingRaw = this.deps.stateStore.get("journalEntries");
+    const existing = Array.isArray(existingRaw)
+      ? [...existingRaw]
+      : [];
+    const updated = [entry, ...existing].slice(
+      0,
+      JOURNAL_MAX_ENTRIES,
+    );
+    await this.deps.stateStore.update("journalEntries", updated);
+    this.deps.bridge.postMessage({
+      type: "JOURNAL_UPDATE",
+      payload: updated,
+    });
   }
 
   private async handleFailure(
@@ -407,7 +704,10 @@ export class StepController implements vscode.Disposable {
       testSummary?: TestSummary;
     },
   ): Promise<void> {
-    const normalized = normalizeError(error, `${context.label} failed`);
+    const normalized = normalizeError(
+      error,
+      `${context.label} failed`,
+    );
     const now = new Date();
     const tooltip = this.describeErrorTooltip(
       error,
@@ -437,7 +737,10 @@ export class StepController implements vscode.Disposable {
     this.deps.notifier.showStepError(step, normalized.message);
   }
 
-  private resolveDuration(startedAt: Date, finishedAt?: string | null): number {
+  private resolveDuration(
+    startedAt: Date,
+    finishedAt?: string | null,
+  ): number {
     const end = finishedAt ? new Date(finishedAt) : new Date();
     const value = end.getTime() - startedAt.getTime();
     return value > 0 ? value : 0;
@@ -459,7 +762,9 @@ export class StepController implements vscode.Disposable {
     fallbackDurationMs: number,
   ): TestSummary {
     const duration =
-      summary.durationMs > 0 ? summary.durationMs : fallbackDurationMs;
+      summary.durationMs > 0
+        ? summary.durationMs
+        : fallbackDurationMs;
     return {
       total: Math.max(0, summary.total),
       passed: Math.max(0, summary.passed),
@@ -553,7 +858,10 @@ export class StepController implements vscode.Disposable {
     return this.createSuccessSummary(step);
   }
 
-  private createErrorSummary(step: StepId, normalized: Error): StepSummary {
+  private createErrorSummary(
+    step: StepId,
+    normalized: Error,
+  ): StepSummary {
     if (normalized instanceof UserError) {
       return { kind: "error", errorCount: 1 };
     }
@@ -641,7 +949,9 @@ export class StepController implements vscode.Disposable {
       });
       child.on("close", (code) => {
         if (typeof code === "number" && code !== 0) {
-          complete(new UserError(`${copy.label} exited with code ${code}`));
+          complete(
+            new UserError(`${copy.label} exited with code ${code}`),
+          );
         } else {
           complete();
         }
@@ -662,7 +972,10 @@ export class StepController implements vscode.Disposable {
 
 function isCommandStep(step: StepId): step is CommandStep {
   return (
-    step === "format" || step === "lint" || step === "typecheck" || step === "tests"
+    step === "format" ||
+    step === "lint" ||
+    step === "typecheck" ||
+    step === "tests"
   );
 }
 
@@ -747,7 +1060,9 @@ class TestSummaryParser {
       return;
     }
     const fragment = line.slice(startIndex + 6);
-    const matches = fragment.matchAll(/(\d+)\s+(total|passed|failed)/gi);
+    const matches = fragment.matchAll(
+      /(\d+)\s+(total|passed|failed)/gi,
+    );
     let matched = false;
     for (const match of matches) {
       matched = true;

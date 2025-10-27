@@ -30,9 +30,7 @@ function tryGetGitApi(): GitAPI | undefined {
   if (!gitExtension) {
     return undefined;
   }
-  const extension = gitExtension.isActive
-    ? gitExtension
-    : undefined;
+  const extension = gitExtension.isActive ? gitExtension : undefined;
   if (!extension) {
     void gitExtension.activate();
   }
@@ -53,10 +51,13 @@ export class RepositorySelector implements vscode.Disposable {
     this.gitApi = tryGetGitApi();
     this.refresh();
     if (this.gitApi) {
-      this.disposables.push(
-        this.gitApi.onDidOpenRepository(() => this.refresh()),
-        this.gitApi.onDidCloseRepository(() => this.refresh()),
-      );
+      const { onDidOpenRepository, onDidCloseRepository } = this.gitApi;
+      if (typeof onDidOpenRepository === "function") {
+        this.disposables.push(onDidOpenRepository(() => this.refresh()));
+      }
+      if (typeof onDidCloseRepository === "function") {
+        this.disposables.push(onDidCloseRepository(() => this.refresh()));
+      }
       if (this.gitApi.onDidChangeSelectedRepository) {
         this.disposables.push(
           this.gitApi.onDidChangeSelectedRepository(() =>
@@ -79,6 +80,16 @@ export class RepositorySelector implements vscode.Disposable {
 
   get active(): RepositorySnapshot | null {
     return this.current;
+  }
+
+  private deriveRepositoryName(uri: vscode.Uri | undefined): string {
+    const pathLike = uri?.path ?? uri?.fsPath;
+    if (!pathLike) {
+      return "repo";
+    }
+
+    const segments = pathLike.split(/[\\/]/).filter(Boolean);
+    return segments.pop() ?? "repo";
   }
 
   refresh(): void {
@@ -105,7 +116,7 @@ export class RepositorySelector implements vscode.Disposable {
     if (selected) {
       return {
         rootUri: selected.rootUri,
-        name: selected.rootUri.path.split("/").pop() ?? "repo",
+        name: this.deriveRepositoryName(selected.rootUri),
         branch: selected.state?.HEAD?.name ?? undefined,
       };
     }
@@ -115,7 +126,7 @@ export class RepositorySelector implements vscode.Disposable {
       const repo = repositories[0];
       return {
         rootUri: repo.rootUri,
-        name: repo.rootUri.path.split("/").pop() ?? "repo",
+        name: this.deriveRepositoryName(repo.rootUri),
         branch: repo.state?.HEAD?.name ?? undefined,
       };
     }

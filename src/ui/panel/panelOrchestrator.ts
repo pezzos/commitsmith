@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { getConfig } from "../../config";
 import {
+  CodexReviewResult,
   InfraError,
   PipelineResult,
   StepSummary,
@@ -9,7 +10,11 @@ import {
   TestPipelineResult,
 } from "../../shared/types";
 import { RepositorySelector } from "./repositorySelector";
-import { formatTimeoutForStep, OrchestratorCommands } from "./orchestrator";
+import {
+  formatTimeoutForStep,
+  OrchestratorCommands,
+} from "./orchestrator";
+import { runCodexReview } from "../../workflows/codexReview";
 
 interface RunCommandOptions {
   readonly command: string;
@@ -21,13 +26,19 @@ interface RunCommandOptions {
 
 export function createPanelOrchestrator(
   repositorySelector: RepositorySelector,
-): Pick<OrchestratorCommands, "runTypecheck" | "runTests"> {
+): Pick<
+  OrchestratorCommands,
+  "runTypecheck" | "runTests" | "askCodexReview"
+> {
   return {
     async runTypecheck(onLog) {
       const startedAt = new Date();
       const repo = repositorySelector.active;
       if (!repo) {
-        return failureResult(startedAt, new InfraError("Select a repository to run CommitSmith."));
+        return failureResult(
+          startedAt,
+          new InfraError("Select a repository to run CommitSmith."),
+        );
       }
       const config = getConfig();
       const command = (config.typecheckCommand || "").trim();
@@ -77,6 +88,22 @@ export function createPanelOrchestrator(
       });
       return result as TestPipelineResult;
     },
+    async askCodexReview(): Promise<CodexReviewResult> {
+      const repo = repositorySelector.active;
+      if (!repo) {
+        const ts = new Date().toISOString();
+        return {
+          success: false,
+          ts,
+          error: new InfraError(
+            "Select a repository to run CommitSmith.",
+          ),
+        };
+      }
+      return await runCodexReview({
+        cwd: repo.rootUri.fsPath,
+      });
+    },
   };
 }
 
@@ -121,7 +148,9 @@ async function runCommand({
 
     child.on("error", (error) => {
       const message =
-        error instanceof Error ? error.message : `${label} command failed to start`;
+        error instanceof Error
+          ? error.message
+          : `${label} command failed to start`;
       finish(failureResult(startedAt, new InfraError(message)));
     });
 
@@ -163,7 +192,10 @@ function successResult(startedAt: Date): PipelineResult {
   };
 }
 
-function failureResult(startedAt: Date, error: Error): PipelineResult {
+function failureResult(
+  startedAt: Date,
+  error: Error,
+): PipelineResult {
   return {
     success: false,
     blocking: true,

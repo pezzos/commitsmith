@@ -102,21 +102,23 @@ function createHarness(options = {}) {
   const stateStore = new CommitSmithStateStore(new InMemoryMemento());
   const gate = new StepExecutionGate();
   const notifier = createNotifierStub();
-  const orchestrator =
-    options.orchestrator ??
-    {
-      async runTypecheck(onLog) {
-        onLog("default log\n");
-        const now = new Date().toISOString();
-        return {
-          success: true,
-          blocking: false,
-          startedAt: now,
-          finishedAt: now,
-          stepSummary: { kind: "success", errorCount: 0, warningCount: 0 },
-        };
-      },
-    };
+  const orchestrator = options.orchestrator ?? {
+    async runTypecheck(onLog) {
+      onLog("default log\n");
+      const now = new Date().toISOString();
+      return {
+        success: true,
+        blocking: false,
+        startedAt: now,
+        finishedAt: now,
+        stepSummary: {
+          kind: "success",
+          errorCount: 0,
+          warningCount: 0,
+        },
+      };
+    },
+  };
   const controller = new StepController({
     stateStore,
     bridge,
@@ -136,7 +138,10 @@ async function runTimeoutScenario() {
   const { controller, stateStore, notifier } = createHarness({
     orchestrator: {
       async runTypecheck() {
-        throw new TimeoutError("Typecheck timed out after 600s", 600_000);
+        throw new TimeoutError(
+          "Typecheck timed out after 600s",
+          600_000,
+        );
       },
     },
   });
@@ -165,15 +170,20 @@ async function runPaginationScenario() {
           blocking: false,
           startedAt,
           finishedAt,
-          stepSummary: { kind: "success", errorCount: 0, warningCount: 0 },
+          stepSummary: {
+            kind: "success",
+            errorCount: 0,
+            warningCount: 0,
+          },
         };
       },
     },
   });
   await controller.handleRunStep("typecheck");
 
-  const historyPage =
-    controller.getLogBuffer("typecheck").getHistory(undefined, 50);
+  const historyPage = controller
+    .getLogBuffer("typecheck")
+    .getHistory(undefined, 50);
   assert.ok(Array.isArray(historyPage.entries));
 
   const initialLength = messages.length;

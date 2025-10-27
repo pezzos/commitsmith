@@ -10,7 +10,10 @@ import {
 } from ".";
 import { StepController } from "./stepController";
 import { UiTelemetryReporter } from "../telemetryReporter";
-import { onCodexOfflineFallback, checkCodexHealth } from "../../codex";
+import {
+  onCodexOfflineFallback,
+  checkCodexHealth,
+} from "../../codex";
 import { StepId, StepStatusEvent } from "../../shared/types";
 import { createPanelOrchestrator } from "./panelOrchestrator";
 
@@ -19,8 +22,7 @@ const COMMAND_RUN_FORMAT = "commitSmith.runFormat";
 const COMMAND_RUN_LINT = "commitSmith.runLint";
 const COMMAND_RUN_TYPECHECK = "commitSmith.runTypecheck";
 const COMMAND_RUN_TESTS = "commitSmith.runTests";
-const COMMAND_ASK_CODEX_REVIEW =
-  "commitSmith.askCodexReview";
+const COMMAND_ASK_CODEX_REVIEW = "commitSmith.askCodexReview";
 const COMMAND_ADD_MANUAL_NOTE = "commitSmith.addManualNote";
 const COMMAND_COMMIT_AND_PUSH = "commitSmith.commitAndPush";
 const CONTEXT_KEY_KEYBINDINGS = "commitSmith:uiKeybindingsEnabled";
@@ -92,17 +94,19 @@ export function initializeUiInfrastructure(
     repositorySelector,
   });
 
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      CommitSmithViewProvider.viewType,
-      viewProvider,
-      {
-        webviewOptions: {
-          retainContextWhenHidden: true,
+  if (typeof vscode.window.registerWebviewViewProvider === "function") {
+    context.subscriptions.push(
+      vscode.window.registerWebviewViewProvider(
+        CommitSmithViewProvider.viewType,
+        viewProvider,
+        {
+          webviewOptions: {
+            retainContextWhenHidden: true,
+          },
         },
-      },
-    ),
-  );
+      ),
+    );
+  }
 
   registerCommands(context, {
     bridge,
@@ -152,8 +156,7 @@ function registerCommands(
     notifier: CommitSmithNotifier;
   },
 ): void {
-  const focusViewCommand =
-    "workbench.view.extension.commitSmith";
+  const focusViewCommand = "workbench.view.extension.commitSmith";
   context.subscriptions.push(
     vscode.commands.registerCommand(COMMAND_OPEN_PANEL, () =>
       vscode.commands.executeCommand(focusViewCommand),

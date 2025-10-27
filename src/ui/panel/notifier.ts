@@ -31,12 +31,18 @@ export class CommitSmithNotifier implements vscode.Disposable {
   private telemetryEnabled: boolean;
   private readonly telemetryDisposable: vscode.Disposable;
   private readonly bridge: {
-    postMessage: (message: { type: "STEP_STATUS"; payload: StepStatusEvent }) => void;
+    postMessage: (message: {
+      type: "STEP_STATUS";
+      payload: StepStatusEvent;
+    }) => void;
   };
 
   constructor(
     bridge: {
-      postMessage: (message: { type: "STEP_STATUS"; payload: StepStatusEvent }) => void;
+      postMessage: (message: {
+        type: "STEP_STATUS";
+        payload: StepStatusEvent;
+      }) => void;
     },
     telemetry: TelemetryReporter,
   ) {
@@ -87,7 +93,10 @@ export class CommitSmithNotifier implements vscode.Disposable {
 
   showLowConfidenceWarning(): void {
     this.setStatus(STATUS_TEMPLATES.lowConfidence);
-    this.queueToast({ kind: "warning", message: "Codex returned a low-confidence message." });
+    this.queueToast({
+      kind: "warning",
+      message: "Codex returned a low-confidence message.",
+    });
   }
 
   showStepError(step: StepId, message: string): void {
@@ -138,7 +147,10 @@ export class CommitSmithNotifier implements vscode.Disposable {
     this.statusItem.text = text;
   }
 
-  private track(event: string, properties: Record<string, unknown>): void {
+  private track(
+    event: string,
+    properties: Record<string, unknown>,
+  ): void {
     if (!this.telemetryEnabled) {
       return;
     }

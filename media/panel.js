@@ -9,15 +9,11 @@
       "[data-element='repo-overlay']",
     ),
     root: document.querySelector(".cs-root"),
-    manualNote: document.querySelector(
-      "[data-role='manual-note']",
-    ),
+    manualNote: document.querySelector("[data-role='manual-note']"),
     manualCounter: document.querySelector(
       "[data-role='manual-counter']",
     ),
-    noteOptOut: document.querySelector(
-      "[data-role='note-opt-out']",
-    ),
+    noteOptOut: document.querySelector("[data-role='note-opt-out']"),
     commitMessage: document.querySelector(
       "[data-role='commit-message']",
     ),
@@ -25,6 +21,18 @@
       "[data-role='commit-counter']",
     ),
     pushAfter: document.querySelector("[data-role='push-after']"),
+    codexReview: {
+      container: document.querySelector("[data-role='codex-review']"),
+      text: document.querySelector("[data-role='codex-review-text']"),
+      source: document.querySelector("[data-role='codex-source']"),
+      confidence: document.querySelector(
+        "[data-role='codex-confidence']",
+      ),
+      timestamp: document.querySelector(
+        "[data-role='codex-timestamp']",
+      ),
+    },
+    journalList: document.querySelector("[data-role='journal-list']"),
   };
 
   const state = {
@@ -39,6 +47,8 @@
     skipWarningsDismissed: false,
     repositoryAvailable: true,
     stepStatus: {},
+    codexReview: null,
+    journalEntries: [],
   };
 
   const controlsRequiringRepo = document.querySelectorAll(
@@ -64,7 +74,8 @@
   const runningSteps = new Set();
   const logContainers = new Map();
   const logStates = new Map();
-  const LOG_PLACEHOLDER = "Logs will appear here once this step runs.";
+  const LOG_PLACEHOLDER =
+    "Logs will appear here once this step runs.";
   const MAX_VISIBLE_LOG_ENTRIES = 50;
   document
     .querySelectorAll("[data-role='log']")
@@ -142,8 +153,7 @@
         if (!sectionId) {
           return;
         }
-        const collapsed =
-          state.collapsedSections[sectionId] === true;
+        const collapsed = state.collapsedSections[sectionId] === true;
         setSectionCollapsed(sectionId, !collapsed, true);
       });
     });
@@ -176,21 +186,25 @@
     });
   }
 
-  document.querySelectorAll("[data-role='run-step']").forEach((button) => {
-    const stepId = button.getAttribute("data-step-id");
-    if (!stepId) {
-      return;
-    }
-    runButtons.set(stepId, button);
-    button.addEventListener("click", () => {
-      vscode.postMessage({
-        type: "RUN_STEP",
-        payload: { step: stepId },
+  document
+    .querySelectorAll("[data-role='run-step']")
+    .forEach((button) => {
+      const stepId = button.getAttribute("data-step-id");
+      if (!stepId) {
+        return;
+      }
+      runButtons.set(stepId, button);
+      button.addEventListener("click", () => {
+        vscode.postMessage({
+          type: "RUN_STEP",
+          payload: { step: stepId },
+        });
       });
     });
-  });
 
-  const addNoteButton = document.querySelector("[data-role='add-note']");
+  const addNoteButton = document.querySelector(
+    "[data-role='add-note']",
+  );
   if (addNoteButton && selectors.manualNote) {
     addNoteButton.addEventListener("click", () => {
       vscode.postMessage({
@@ -223,7 +237,11 @@
   }
 
   const commitButton = document.querySelector("[data-role='commit']");
-  if (commitButton && selectors.commitMessage && selectors.pushAfter) {
+  if (
+    commitButton &&
+    selectors.commitMessage &&
+    selectors.pushAfter
+  ) {
     commitButton.addEventListener("click", () => {
       vscode.postMessage({
         type: "COMMIT_AND_PUSH",
@@ -271,6 +289,19 @@
       case "LOG_HISTORY":
         applyLogHistory(data.payload);
         break;
+      case "REVIEW_RESULT":
+        state.codexReview =
+          data.payload && typeof data.payload === "object"
+            ? data.payload
+            : null;
+        applyCodexReview(state.codexReview);
+        break;
+      case "JOURNAL_UPDATE":
+        state.journalEntries = Array.isArray(data.payload)
+          ? data.payload
+          : [];
+        renderJournal(state.journalEntries);
+        break;
       default:
         break;
     }
@@ -294,11 +325,20 @@
     state.skipWarningsDismissed = !!newState.skipWarningsDismissed;
     state.repositoryAvailable = !!newState.repositoryAvailable;
     state.stepStatus = newState.stepStatus || {};
+    state.codexReview =
+      newState.codexReview && typeof newState.codexReview === "object"
+        ? newState.codexReview
+        : null;
+    state.journalEntries = Array.isArray(newState.journalEntries)
+      ? newState.journalEntries
+      : [];
     applyOffline(state.offline);
     applyRepositoryAvailability(state.repositoryAvailable);
     applyCollapsedSections(state.collapsedSections || {});
     applyDrafts();
+    applyCodexReview(state.codexReview);
     applySkips(state.skippable || {});
+    renderJournal(state.journalEntries);
     Object.values(state.stepStatus).forEach((status) =>
       applyStepStatus(status, false),
     );
@@ -339,7 +379,10 @@
         element instanceof HTMLTextAreaElement
       ) {
         element.disabled = !available;
-        element.setAttribute("aria-disabled", (!available).toString());
+        element.setAttribute(
+          "aria-disabled",
+          (!available).toString(),
+        );
         if (!available) {
           element.setAttribute(
             "title",
@@ -376,11 +419,7 @@
       });
   }
 
-  function setSectionCollapsed(
-    sectionId,
-    collapsed,
-    notifyHost,
-  ) {
+  function setSectionCollapsed(sectionId, collapsed, notifyHost) {
     const section = document.querySelector(
       `[data-section-id="${sectionId}"]`,
     );
@@ -420,6 +459,198 @@
     }
   }
 
+  function applyCodexReview(review) {
+    const elements = selectors.codexReview;
+    if (!elements || !elements.container || !elements.text) {
+      return;
+    }
+    if (!review) {
+      elements.container.dataset.source = "empty";
+      elements.text.textContent =
+        "Ask Codex Review to see insights here.";
+      if (elements.source) {
+        elements.source.textContent = "AI";
+        elements.source.hidden = true;
+      }
+      if (elements.confidence) {
+        elements.confidence.hidden = true;
+      }
+      if (elements.timestamp) {
+        elements.timestamp.hidden = true;
+      }
+      return;
+    }
+    const source =
+      review.source === "heuristic" ? "heuristic" : "codex";
+    elements.container.dataset.source = source;
+    if (elements.source) {
+      elements.source.textContent =
+        source === "codex" ? "AI" : "Fallback";
+      elements.source.hidden = false;
+    }
+    if (elements.confidence) {
+      const confidence = normalizeConfidence(review.confidence);
+      if (confidence !== null) {
+        const percent = Math.round(confidence * 100);
+        elements.confidence.textContent = `Confidence ${percent}%`;
+        elements.confidence.hidden = false;
+      } else {
+        elements.confidence.hidden = true;
+      }
+    }
+    if (elements.timestamp) {
+      const formatted = formatTimestamp(review.ts);
+      if (formatted) {
+        elements.timestamp.textContent = formatted;
+        try {
+          elements.timestamp.dateTime = new Date(
+            review.ts,
+          ).toISOString();
+        } catch {
+          elements.timestamp.removeAttribute("dateTime");
+        }
+        elements.timestamp.hidden = false;
+      } else {
+        elements.timestamp.hidden = true;
+      }
+    }
+    const reviewText =
+      typeof review.text === "string" && review.text.length > 0
+        ? review.text
+        : typeof review.message === "string"
+          ? review.message
+          : "";
+    elements.text.textContent =
+      reviewText.length > 0 ? reviewText : "No feedback available.";
+  }
+
+  function renderJournal(entries) {
+    const list = selectors.journalList;
+    if (!list) {
+      return;
+    }
+    while (list.firstChild) {
+      list.removeChild(list.firstChild);
+    }
+    if (!entries || entries.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "cs-journal-empty";
+      empty.textContent = "Journal entries will appear here.";
+      list.appendChild(empty);
+      return;
+    }
+    for (const entry of entries) {
+      const item = document.createElement("li");
+      const sourceDetails = journalSourceDetails(entry?.source);
+      item.className = "cs-journal-entry";
+      item.dataset.source = sourceDetails.key;
+
+      const meta = document.createElement("div");
+      meta.className = "cs-journal-entry__meta";
+
+      const badge = document.createElement("span");
+      badge.className = "cs-badge cs-journal-badge";
+      badge.textContent = sourceDetails.label;
+      meta.appendChild(badge);
+
+      const confidence = extractConfidence(entry?.metadata);
+      if (confidence !== null) {
+        const confidenceEl = document.createElement("span");
+        confidenceEl.className = "cs-journal-confidence";
+        confidenceEl.textContent = `Confidence ${Math.round(
+          confidence * 100,
+        )}%`;
+        meta.appendChild(confidenceEl);
+      }
+
+      const timestamp = formatTimestamp(entry?.ts);
+      if (timestamp) {
+        const timeEl = document.createElement("time");
+        timeEl.className = "cs-journal-timestamp";
+        timeEl.textContent = timestamp;
+        try {
+          timeEl.dateTime = new Date(entry.ts).toISOString();
+        } catch {
+          timeEl.removeAttribute("dateTime");
+        }
+        meta.appendChild(timeEl);
+      }
+
+      item.appendChild(meta);
+
+      const text = document.createElement("p");
+      text.className = "cs-journal-entry__text";
+      const entryText =
+        typeof entry?.text === "string" && entry.text.length > 0
+          ? entry.text
+          : typeof entry?.message === "string"
+            ? entry.message
+            : "";
+      text.textContent = entryText;
+      item.appendChild(text);
+
+      list.appendChild(item);
+    }
+  }
+
+  function normalizeConfidence(value) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return null;
+    }
+    if (value < 0) {
+      return 0;
+    }
+    if (value > 1) {
+      return 1;
+    }
+    return value;
+  }
+
+  function extractConfidence(metadata) {
+    if (!metadata || typeof metadata !== "object") {
+      return null;
+    }
+    const value = metadata.confidence;
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return null;
+    }
+    if (value < 0) {
+      return 0;
+    }
+    if (value > 1) {
+      return 1;
+    }
+    return value;
+  }
+
+  function journalSourceDetails(source) {
+    switch (source) {
+      case "pipeline":
+        return { key: "pipeline", label: "Pipeline" };
+      case "manual":
+        return { key: "manual", label: "Manual" };
+      default:
+        return { key: "codex", label: "AI" };
+    }
+  }
+
+  function formatTimestamp(value) {
+    if (!value) {
+      return "";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+    return date.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
   function updateManualCounter(length) {
     if (selectors.manualCounter) {
       selectors.manualCounter.textContent = `${length} / 500`;
@@ -437,7 +668,7 @@
   function getHeaderLength(message) {
     const firstLine =
       typeof message === "string"
-        ? message.split(/\r?\n/, 1)[0] ?? ""
+        ? (message.split(/\r?\n/, 1)[0] ?? "")
         : "";
     return firstLine.length;
   }
@@ -658,7 +889,11 @@
     }
     const logState = getOrCreateLogState(stepId);
     if (payload.entries.length > 0) {
-      for (let index = payload.entries.length - 1; index >= 0; index -= 1) {
+      for (
+        let index = payload.entries.length - 1;
+        index >= 0;
+        index -= 1
+      ) {
         applyLog(payload.entries[index], "prepend", false, false);
       }
       renderLog(stepId, true);

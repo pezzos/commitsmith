@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import {
   AppendLogEvent,
-  CodexReviewResult,
+  CodexReviewSnapshot,
   JournalEntry,
   StepId,
   StepStatusEvent,
@@ -70,7 +70,10 @@ export type UiIncomingMessage =
 
 export type UiOutgoingMessage =
   | { readonly type: "STATE_SYNC"; readonly payload: StateSnapshot }
-  | { readonly type: "STEP_STATUS"; readonly payload: StepStatusEvent }
+  | {
+      readonly type: "STEP_STATUS";
+      readonly payload: StepStatusEvent;
+    }
   | { readonly type: "APPEND_LOG"; readonly payload: AppendLogEvent }
   | {
       readonly type: "LOG_HISTORY";
@@ -80,8 +83,14 @@ export type UiOutgoingMessage =
         readonly hasMore: boolean;
       };
     }
-  | { readonly type: "JOURNAL_UPDATE"; readonly payload: JournalEntry[] }
-  | { readonly type: "REVIEW_RESULT"; readonly payload: CodexReviewResult }
+  | {
+      readonly type: "JOURNAL_UPDATE";
+      readonly payload: JournalEntry[];
+    }
+  | {
+      readonly type: "REVIEW_RESULT";
+      readonly payload: CodexReviewSnapshot;
+    }
   | {
       readonly type: "ERROR";
       readonly payload: { category: string; message: string };
@@ -102,8 +111,7 @@ export class CommitSmithUIBridge implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly incomingEmitter =
     new vscode.EventEmitter<UiIncomingMessage>();
-  private readonly errorEmitter =
-    new vscode.EventEmitter<Error>();
+  private readonly errorEmitter = new vscode.EventEmitter<Error>();
 
   readonly onDidReceiveMessage = this.incomingEmitter.event;
   readonly onDidError = this.errorEmitter.event;
@@ -121,10 +129,7 @@ export class CommitSmithUIBridge implements vscode.Disposable {
       localResourceRoots: [
         vscode.Uri.joinPath(this.options.extensionUri, "media"),
         ...this.options.rootAssets.map((relative) =>
-          vscode.Uri.joinPath(
-            this.options.extensionUri,
-            relative,
-          ),
+          vscode.Uri.joinPath(this.options.extensionUri, relative),
         ),
       ],
     };
@@ -151,11 +156,11 @@ export class CommitSmithUIBridge implements vscode.Disposable {
     const { body, head } = builder(nonce);
     webview.html = [
       "<!DOCTYPE html>",
-      "<html lang=\"en\">",
+      '<html lang="en">',
       "<head>",
-      "<meta charset=\"UTF-8\">",
+      '<meta charset="UTF-8">',
       csp,
-      "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\" />",
+      '<meta name="viewport" content="width=device-width,initial-scale=1.0" />',
       head ?? "",
       "</head>",
       "<body>",
@@ -208,9 +213,7 @@ export class CommitSmithUIBridge implements vscode.Disposable {
       if (error instanceof Error) {
         this.errorEmitter.fire(error);
       } else {
-        this.errorEmitter.fire(
-          new Error("Unhandled bridge error"),
-        );
+        this.errorEmitter.fire(new Error("Unhandled bridge error"));
       }
     }
   }

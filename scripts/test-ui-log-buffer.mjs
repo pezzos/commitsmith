@@ -51,12 +51,14 @@ for (let index = 0; index < 600; index += 1) {
   bigBuffer.append(`row-${index}\n`);
 }
 bigBuffer.close();
-const truncatedEvents = events.slice(startIndex).filter(
-  (message) =>
-    message.payload.truncated === true &&
-    typeof message.payload.chunk === "string" &&
-    message.payload.chunk.includes("… truncated"),
-);
+const truncatedEvents = events
+  .slice(startIndex)
+  .filter(
+    (message) =>
+      message.payload.truncated === true &&
+      typeof message.payload.chunk === "string" &&
+      message.payload.chunk.includes("… truncated"),
+  );
 assert.ok(truncatedEvents.length >= 1);
 
 mock.restore();

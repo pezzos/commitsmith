@@ -117,7 +117,8 @@ function createHarness() {
 }
 
 async function runSuccessScenario() {
-  const { controller, notifier, stateStore, messages } = createHarness();
+  const { controller, notifier, stateStore, messages } =
+    createHarness();
   controller.executeCommand = async (...args) => {
     const buffer = args[3];
     buffer.append("formatted file\n");
@@ -133,7 +134,10 @@ async function runSuccessScenario() {
   assert.equal(status.status, "success");
   assert.equal(status.blocking, false);
   assert.equal(status.tooltip, status.message);
-  assert.deepEqual(status.summary, { kind: "success", errorCount: 0 });
+  assert.deepEqual(status.summary, {
+    kind: "success",
+    errorCount: 0,
+  });
   const log = messages
     .filter((msg) => msg.type === "APPEND_LOG")
     .map((msg) => msg.payload.chunk)

@@ -138,7 +138,10 @@ async function runSuccessScenario() {
   assert(status);
   assert.equal(status.status, "success");
   assert.equal(status.blocking, false);
-  assert.deepEqual(status.summary, { kind: "success", errorCount: 0 });
+  assert.deepEqual(status.summary, {
+    kind: "success",
+    errorCount: 0,
+  });
 }
 
 async function runUserErrorScenario() {
@@ -154,7 +157,10 @@ async function runUserErrorScenario() {
   assert(status);
   assert.equal(status.status, "error");
   assert.equal(status.blocking, true);
-  assert.equal(status.message, "Fix issues in your code (1 blocking issue)");
+  assert.equal(
+    status.message,
+    "Fix issues in your code (1 blocking issue)",
+  );
   assert.equal(status.tooltip, "Fix issues in your code");
   assert.deepEqual(status.summary, { kind: "error", errorCount: 1 });
 }

@@ -7,11 +7,7 @@ export type StepId =
   | "tests"
   | "codexReview";
 
-export type StepStatus =
-  | "idle"
-  | "running"
-  | "success"
-  | "error";
+export type StepStatus = "idle" | "running" | "success" | "error";
 
 export interface StepSummary {
   readonly kind: "success" | "error";
@@ -44,6 +40,7 @@ export interface JournalEntry {
   readonly ts: string;
   readonly source: "codex" | "pipeline" | "manual";
   readonly text: string;
+  readonly message?: string;
   readonly metadata?: Record<string, unknown>;
 }
 
@@ -82,6 +79,15 @@ export interface CodexReviewResult {
     | TimeoutError
     | InfraError
     | UserError;
+}
+
+export type CodexReviewSource = "codex" | "heuristic";
+
+export interface CodexReviewSnapshot {
+  readonly source: CodexReviewSource;
+  readonly text: string;
+  readonly confidence: number | null;
+  readonly ts: string;
 }
 
 export interface CommitResult {
