@@ -374,6 +374,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+.cs-counter--warning {
+  color: var(--vscode-editorWarning-foreground, #d7ba7d);
+}
+
+.cs-field-message {
+  margin: 0;
+  font-size: 11px;
+  color: var(--vscode-editorError-foreground, #f14c4c);
+}
+
+.cs-field-message[hidden] {
+  display: none;
+}
+
 .cs-journal-list {
   list-style: none;
   padding: 0;

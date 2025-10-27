@@ -368,6 +368,8 @@ export class CommitSmithViewProvider
             class="cs-button cs-button--link"
             type="button"
             data-role="journal-load-more"
+            disabled
+            aria-disabled="true"
           >
             Load more
           </button>
@@ -406,6 +408,12 @@ export class CommitSmithViewProvider
               data-requires-repo
             ></textarea>
           </label>
+          <p
+            class="cs-field-message"
+            data-role="manual-error"
+            hidden
+            aria-live="polite"
+          ></p>
           <div class="cs-field-footer">
             <span class="cs-counter" data-role="manual-counter">0 / 500</span>
             <label class="cs-checkbox">

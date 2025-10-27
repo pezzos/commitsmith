@@ -88,6 +88,10 @@ export type UiOutgoingMessage =
       readonly payload: JournalEntry[];
     }
   | {
+      readonly type: "MANUAL_NOTE_RESULT";
+      readonly payload: { readonly success: boolean; readonly message?: string };
+    }
+  | {
       readonly type: "REVIEW_RESULT";
       readonly payload: CodexReviewSnapshot;
     }

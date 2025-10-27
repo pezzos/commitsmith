@@ -37,7 +37,8 @@ export interface AppendLogEvent {
 }
 
 export interface JournalEntry {
-  readonly ts: string;
+  readonly hash?: string;
+  readonly ts?: string;
   readonly source: "codex" | "pipeline" | "manual";
   readonly text: string;
   readonly message?: string;

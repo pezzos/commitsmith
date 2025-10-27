@@ -1,6 +1,17 @@
 (function () {
   const vscode = acquireVsCodeApi();
 
+  const strings = {
+    manualNoteEmpty: "Enter a note before adding.",
+    manualNoteTooLong: "Manual notes must be 500 characters or fewer.",
+    manualNoteGenericError: "Unable to add manual note.",
+    journalEmpty: "Journal entries will appear here.",
+    journalLoadMore: "Load more",
+    manualCounter: (length, limit = 500) => `${length} / ${limit}`,
+    manualCounterWarning: (length, limit = 500) =>
+      `${length} / ${limit} (approaching limit)`,
+  };
+
   const selectors = {
     offlineBanner: document.querySelector(
       "[data-element='offline-banner']",
@@ -13,6 +24,7 @@
     manualCounter: document.querySelector(
       "[data-role='manual-counter']",
     ),
+    manualError: document.querySelector("[data-role='manual-error']"),
     noteOptOut: document.querySelector("[data-role='note-opt-out']"),
     commitMessage: document.querySelector(
       "[data-role='commit-message']",
@@ -33,6 +45,9 @@
       ),
     },
     journalList: document.querySelector("[data-role='journal-list']"),
+    journalLoadMore: document.querySelector(
+      "[data-role='journal-load-more']",
+    ),
   };
 
   const state = {
@@ -49,6 +64,8 @@
     stepStatus: {},
     codexReview: null,
     journalEntries: [],
+    journalHasMore: false,
+    journalCursor: null,
   };
 
   const controlsRequiringRepo = document.querySelectorAll(
@@ -71,6 +88,8 @@
   const rerunLastButtons = new Map();
   const cancelButtons = new Map();
   const loadMoreButtons = new Map();
+  let manualNotePending = false;
+  let journalLoadMorePending = false;
   const runningSteps = new Set();
   const logContainers = new Map();
   const logStates = new Map();
@@ -178,10 +197,19 @@
 
   if (selectors.manualNote) {
     selectors.manualNote.addEventListener("input", () => {
-      updateManualCounter(selectors.manualNote.value.length);
+      const value = selectors.manualNote.value ?? "";
+      updateManualCounter(value.length);
+      const trimmedLength = value.trim().length;
+      if (trimmedLength === 0) {
+        clearManualError();
+      } else if (value.length > 500) {
+        showManualError(strings.manualNoteTooLong);
+      } else {
+        clearManualError();
+      }
       vscode.postMessage({
         type: "UPDATE_DRAFT_NOTE",
-        payload: { value: selectors.manualNote.value },
+        payload: { value },
       });
     });
   }
@@ -207,21 +235,37 @@
   );
   if (addNoteButton && selectors.manualNote) {
     addNoteButton.addEventListener("click", () => {
+      const rawValue = selectors.manualNote.value;
+      const trimmed = typeof rawValue === "string" ? rawValue.trim() : "";
+      clearManualError();
+      if (trimmed.length === 0) {
+        showManualError(strings.manualNoteEmpty);
+        return;
+      }
+      if (trimmed.length > 500) {
+        showManualError(strings.manualNoteTooLong);
+        return;
+      }
+      setManualNotePending(true);
       vscode.postMessage({
         type: "ADD_MANUAL_NOTE",
-        payload: { text: selectors.manualNote.value },
+        payload: { text: trimmed },
       });
     });
   }
 
-  const loadMoreButton = document.querySelector(
-    "[data-role='journal-load-more']",
-  );
-  if (loadMoreButton) {
-    loadMoreButton.addEventListener("click", () => {
+  if (selectors.journalLoadMore) {
+    selectors.journalLoadMore.textContent = strings.journalLoadMore;
+    selectors.journalLoadMore.addEventListener("click", () => {
+      if (!state.journalHasMore || journalLoadMorePending) {
+        return;
+      }
+      setJournalLoadMorePending(true);
       vscode.postMessage({
         type: "REQUEST_JOURNAL_PAGE",
-        payload: {},
+        payload: state.journalCursor
+          ? { cursor: state.journalCursor }
+          : {},
       });
     });
   }
@@ -301,6 +345,11 @@
           ? data.payload
           : [];
         renderJournal(state.journalEntries);
+        journalLoadMorePending = false;
+        updateJournalLoadMoreButton();
+        break;
+      case "MANUAL_NOTE_RESULT":
+        handleManualNoteResult(data.payload);
         break;
       default:
         break;
@@ -332,6 +381,15 @@
     state.journalEntries = Array.isArray(newState.journalEntries)
       ? newState.journalEntries
       : [];
+    state.journalHasMore =
+      typeof newState.journalHasMore === "boolean"
+        ? newState.journalHasMore
+        : false;
+    state.journalCursor =
+      typeof newState.journalCursor === "string" &&
+      newState.journalCursor.length > 0
+        ? newState.journalCursor
+        : null;
     applyOffline(state.offline);
     applyRepositoryAvailability(state.repositoryAvailable);
     applyCollapsedSections(state.collapsedSections || {});
@@ -339,6 +397,8 @@
     applyCodexReview(state.codexReview);
     applySkips(state.skippable || {});
     renderJournal(state.journalEntries);
+    journalLoadMorePending = false;
+    updateJournalLoadMoreButton();
     Object.values(state.stepStatus).forEach((status) =>
       applyStepStatus(status, false),
     );
@@ -378,11 +438,9 @@
         element instanceof HTMLInputElement ||
         element instanceof HTMLTextAreaElement
       ) {
-        element.disabled = !available;
-        element.setAttribute(
-          "aria-disabled",
-          (!available).toString(),
-        );
+        const shouldDisable = !available;
+        element.disabled = shouldDisable;
+        element.setAttribute("aria-disabled", shouldDisable.toString());
         if (!available) {
           element.setAttribute(
             "title",
@@ -392,6 +450,14 @@
           element.removeAttribute("title");
           element.removeAttribute("aria-disabled");
         }
+      }
+      if (
+        role === "add-note" &&
+        element instanceof HTMLButtonElement &&
+        manualNotePending
+      ) {
+        element.disabled = true;
+        element.setAttribute("aria-disabled", "true");
       }
     });
     if (selectors.root) {
@@ -404,6 +470,8 @@
     if (selectors.repoOverlay) {
       selectors.repoOverlay.hidden = available;
     }
+    setManualNotePending(manualNotePending);
+    updateJournalLoadMoreButton();
   }
 
   function applyCollapsedSections(collapsed) {
@@ -535,11 +603,20 @@
     if (!entries || entries.length === 0) {
       const empty = document.createElement("li");
       empty.className = "cs-journal-empty";
-      empty.textContent = "Journal entries will appear here.";
+      empty.textContent = strings.journalEmpty;
       list.appendChild(empty);
       return;
     }
+    const seen = new Set();
     for (const entry of entries) {
+      const key =
+        typeof entry?.hash === "string" && entry.hash.length > 0
+          ? entry.hash
+          : `${entry?.source ?? "codex"}:${entry?.ts ?? ""}:${entry?.text ?? ""}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
       const item = document.createElement("li");
       const sourceDetails = journalSourceDetails(entry?.source);
       item.className = "cs-journal-entry";
@@ -590,6 +667,79 @@
       item.appendChild(text);
 
       list.appendChild(item);
+    }
+  }
+
+  function handleManualNoteResult(result) {
+    setManualNotePending(false);
+    if (!result || typeof result !== "object") {
+      return;
+    }
+    if (!result.success) {
+      showManualError(
+        typeof result.message === "string" && result.message.length > 0
+          ? result.message
+          : strings.manualNoteGenericError,
+      );
+      return;
+    }
+    clearManualError();
+  }
+
+  function showManualError(message) {
+    if (!selectors.manualError) {
+      return;
+    }
+    selectors.manualError.textContent =
+      typeof message === "string" && message.length > 0
+        ? message
+        : strings.manualNoteGenericError;
+    selectors.manualError.hidden = false;
+  }
+
+  function clearManualError() {
+    if (!selectors.manualError) {
+      return;
+    }
+    selectors.manualError.textContent = "";
+    selectors.manualError.hidden = true;
+  }
+
+  function setManualNotePending(pending) {
+    manualNotePending = pending;
+    if (!(addNoteButton instanceof HTMLButtonElement)) {
+      return;
+    }
+    if (pending) {
+      addNoteButton.disabled = true;
+      addNoteButton.setAttribute("aria-disabled", "true");
+      return;
+    }
+    if (state.repositoryAvailable) {
+      addNoteButton.disabled = false;
+      addNoteButton.removeAttribute("aria-disabled");
+    }
+  }
+
+  function setJournalLoadMorePending(pending) {
+    journalLoadMorePending = pending;
+    updateJournalLoadMoreButton();
+  }
+
+  function updateJournalLoadMoreButton() {
+    const button = selectors.journalLoadMore;
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    const shouldDisable =
+      !state.repositoryAvailable ||
+      !state.journalHasMore ||
+      journalLoadMorePending;
+    button.disabled = shouldDisable;
+    if (shouldDisable) {
+      button.setAttribute("aria-disabled", "true");
+    } else {
+      button.removeAttribute("aria-disabled");
     }
   }
 
@@ -652,9 +802,19 @@
   }
 
   function updateManualCounter(length) {
-    if (selectors.manualCounter) {
-      selectors.manualCounter.textContent = `${length} / 500`;
+    if (!selectors.manualCounter) {
+      return;
     }
+    const warningThreshold = 480;
+    const text =
+      length >= warningThreshold
+        ? strings.manualCounterWarning(length)
+        : strings.manualCounter(length);
+    selectors.manualCounter.textContent = text;
+    selectors.manualCounter.classList.toggle(
+      "cs-counter--warning",
+      length >= warningThreshold,
+    );
   }
 
   function updateCommitCounter(message) {

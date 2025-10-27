@@ -8,6 +8,7 @@ import {
   RepositorySelector,
   CommitSmithNotifier,
 } from ".";
+import { JournalController } from "./journalController";
 import {
   CodexReviewResult,
   CodexReviewSnapshot,
@@ -33,7 +34,7 @@ import {
 } from "./orchestrator";
 
 const LOG_HISTORY_PAGE_SIZE = 50;
-const JOURNAL_MAX_ENTRIES = 50;
+const LEGACY_JOURNAL_LIMIT = 50;
 const FALLBACK_REVIEW_MESSAGE =
   "Codex is offline. Review format, lint, typecheck, and test results manually before committing.";
 
@@ -74,6 +75,7 @@ interface StepControllerDeps {
   readonly bridge: CommitSmithUIBridge;
   readonly gate: StepExecutionGate;
   readonly repositorySelector: RepositorySelector;
+  readonly journal: JournalController;
   readonly notifier: CommitSmithNotifier;
   readonly orchestrator?: PanelOrchestrator;
 }
@@ -678,14 +680,15 @@ export class StepController implements vscode.Disposable {
   private async appendJournalEntry(
     entry: JournalEntry,
   ): Promise<void> {
+    if (this.deps.journal) {
+      await this.deps.journal.addEntry(entry);
+      return;
+    }
     const existingRaw = this.deps.stateStore.get("journalEntries");
     const existing = Array.isArray(existingRaw)
       ? [...existingRaw]
       : [];
-    const updated = [entry, ...existing].slice(
-      0,
-      JOURNAL_MAX_ENTRIES,
-    );
+    const updated = [entry, ...existing].slice(0, LEGACY_JOURNAL_LIMIT);
     await this.deps.stateStore.update("journalEntries", updated);
     this.deps.bridge.postMessage({
       type: "JOURNAL_UPDATE",

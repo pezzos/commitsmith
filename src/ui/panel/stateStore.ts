@@ -6,6 +6,8 @@ import {
   StepStatusEvent,
 } from "../../shared/types";
 
+import { ensureJournalEntryHash } from "./journalUtils";
+
 type CollapsedSections = Record<string, boolean>;
 type SkippableMap = Partial<Record<StepId, boolean>>;
 
@@ -21,6 +23,8 @@ export interface PersistedUiState {
   readonly skippable: SkippableMap;
   readonly skipWarningsDismissed: boolean;
   readonly journalEntries: readonly JournalEntry[];
+  readonly journalCursor: string | null;
+  readonly journalHasMore: boolean;
   readonly stepStatus: Partial<Record<StepId, StepStatusEvent>>;
 }
 
@@ -40,6 +44,8 @@ const DEFAULT_STATE: PersistedUiState = {
   skippable: {},
   skipWarningsDismissed: false,
   journalEntries: [],
+  journalCursor: null,
+  journalHasMore: false,
   stepStatus: {},
 };
 
@@ -122,8 +128,17 @@ export class CommitSmithStateStore implements vscode.Disposable {
         ...stored.collapsedSections,
       },
       journalEntries: Array.isArray(stored.journalEntries)
-        ? stored.journalEntries.slice()
+        ? stored.journalEntries.map((entry) => ensureJournalEntryHash(entry))
         : DEFAULT_STATE.journalEntries.slice(),
+      journalCursor:
+        typeof stored.journalCursor === "string" &&
+        stored.journalCursor.length > 0
+          ? stored.journalCursor
+          : null,
+      journalHasMore:
+        typeof stored.journalHasMore === "boolean"
+          ? stored.journalHasMore
+          : DEFAULT_STATE.journalHasMore,
       skippable: {
         ...DEFAULT_STATE.skippable,
         ...stored.skippable,

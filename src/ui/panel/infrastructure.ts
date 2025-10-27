@@ -8,6 +8,7 @@ import {
   RepositorySelector,
   StepExecutionGate,
 } from ".";
+import { JournalController } from "./journalController";
 import { StepController } from "./stepController";
 import { UiTelemetryReporter } from "../telemetryReporter";
 import {
@@ -60,6 +61,12 @@ export function initializeUiInfrastructure(
     rootAssets: ["media"],
   });
   const telemetryReporter = new UiTelemetryReporter();
+  const journal = new JournalController({
+    stateStore,
+    bridge,
+    repositorySelector,
+    telemetry: telemetryReporter,
+  });
   const notifier = new CommitSmithNotifier(bridge, telemetryReporter);
   const orchestrator = createPanelOrchestrator(repositorySelector);
   const stepController = new StepController({
@@ -67,6 +74,7 @@ export function initializeUiInfrastructure(
     bridge,
     gate,
     repositorySelector,
+    journal,
     notifier,
     orchestrator,
   });
@@ -77,6 +85,7 @@ export function initializeUiInfrastructure(
     repositorySelector,
     bridge,
     notifier,
+    journal,
     stepController,
     {
       dispose: () => {
