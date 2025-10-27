@@ -58,6 +58,7 @@ const STEP_SECTIONS: Array<{
     label: "Tests",
     description: "Run the automated test suite.",
     buttonLabel: "Run Tests",
+    supportsLogPagination: true,
   },
   {
     step: "codexReview",

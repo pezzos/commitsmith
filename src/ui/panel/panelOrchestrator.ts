@@ -6,6 +6,7 @@ import {
   StepSummary,
   TimeoutError,
   UserError,
+  TestPipelineResult,
 } from "../../shared/types";
 import { RepositorySelector } from "./repositorySelector";
 import { formatTimeoutForStep, OrchestratorCommands } from "./orchestrator";
@@ -20,7 +21,7 @@ interface RunCommandOptions {
 
 export function createPanelOrchestrator(
   repositorySelector: RepositorySelector,
-): Pick<OrchestratorCommands, "runTypecheck"> {
+): Pick<OrchestratorCommands, "runTypecheck" | "runTests"> {
   return {
     async runTypecheck(onLog) {
       const startedAt = new Date();
@@ -46,6 +47,35 @@ export function createPanelOrchestrator(
         timeoutMs: formatTimeoutForStep("typecheck"),
         onLog,
       });
+    },
+    async runTests(onLog) {
+      const startedAt = new Date();
+      const repo = repositorySelector.active;
+      if (!repo) {
+        return failureResult(
+          startedAt,
+          new InfraError("Select a repository to run CommitSmith."),
+        );
+      }
+      const config = getConfig();
+      const command = (config.testsCommand || "").trim();
+      if (command.length === 0) {
+        return {
+          success: true,
+          blocking: false,
+          startedAt: startedAt.toISOString(),
+          finishedAt: startedAt.toISOString(),
+          stepSummary: emptySummary("success"),
+        };
+      }
+      const result = await runCommand({
+        command,
+        cwd: repo.rootUri.fsPath,
+        label: "Tests",
+        timeoutMs: formatTimeoutForStep("tests"),
+        onLog,
+      });
+      return result as TestPipelineResult;
     },
   };
 }

@@ -28,6 +28,7 @@ export interface StepStatusEvent {
   readonly message?: string;
   readonly tooltip?: string;
   readonly summary?: StepSummary;
+  readonly testSummary?: TestSummary;
 }
 
 export interface AppendLogEvent {

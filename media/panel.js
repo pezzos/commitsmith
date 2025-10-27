@@ -321,6 +321,18 @@
 
   function applyRepositoryAvailability(available) {
     controlsRequiringRepo.forEach((element) => {
+      const role =
+        element instanceof HTMLElement
+          ? element.getAttribute("data-role")
+          : null;
+      if (
+        element instanceof HTMLButtonElement &&
+        role === "rerun-failed"
+      ) {
+        element.disabled = true;
+        element.setAttribute("aria-disabled", "true");
+        return;
+      }
       if (
         element instanceof HTMLButtonElement ||
         element instanceof HTMLInputElement ||

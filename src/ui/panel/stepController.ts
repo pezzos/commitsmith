@@ -16,6 +16,8 @@ import {
   StepSummary,
   TimeoutError,
   UserError,
+  TestSummary,
+  TestPipelineResult,
 } from "../../shared/types";
 import { StepLogBuffer } from "./logBuffer";
 import { SecretMasker } from "./security";
@@ -28,7 +30,7 @@ import {
 
 const LOG_HISTORY_PAGE_SIZE = 50;
 
-type CommandStep = "format" | "lint" | "typecheck";
+type CommandStep = "format" | "lint" | "typecheck" | "tests";
 
 interface StepCopy {
   readonly label: string;
@@ -39,6 +41,7 @@ const COMMAND_STEP_COPY: Record<CommandStep, StepCopy> = {
   format: { label: "Format", noun: "formatter" },
   lint: { label: "Lint", noun: "linter" },
   typecheck: { label: "Typecheck", noun: "typechecker" },
+  tests: { label: "Tests", noun: "test runner" },
 };
 
 interface StepControllerDeps {
@@ -47,14 +50,20 @@ interface StepControllerDeps {
   readonly gate: StepExecutionGate;
   readonly repositorySelector: RepositorySelector;
   readonly notifier: CommitSmithNotifier;
-  readonly orchestrator?: Pick<OrchestratorCommands, "runTypecheck">;
+  readonly orchestrator?: Pick<
+    OrchestratorCommands,
+    "runTypecheck" | "runTests"
+  >;
 }
 
 export class StepController implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly logBuffers = new Map<StepId, StepLogBuffer>();
   private readonly masker = new SecretMasker();
-  private readonly orchestrator?: Pick<OrchestratorCommands, "runTypecheck">;
+  private readonly orchestrator?: Pick<
+    OrchestratorCommands,
+    "runTypecheck" | "runTests"
+  >;
 
   constructor(private readonly deps: StepControllerDeps) {
     this.orchestrator = deps.orchestrator;
@@ -175,6 +184,13 @@ export class StepController implements vscode.Disposable {
           copy,
           timeoutMs,
         });
+      } else if (step === "tests") {
+        await this.runTestsStep({
+          startedAt,
+          buffer,
+          copy,
+          timeoutMs,
+        });
       } else {
         await this.executeCommand(
           step,
@@ -213,6 +229,7 @@ export class StepController implements vscode.Disposable {
       skipped: boolean;
       skipMessage?: string;
       summary?: StepSummary;
+      testSummary?: TestSummary;
     },
   ): Promise<void> {
     const endedAt = new Date();
@@ -225,6 +242,7 @@ export class StepController implements vscode.Disposable {
     const summary: StepSummary | undefined = context.skipped
       ? undefined
       : context.summary ?? this.createSuccessSummary(step);
+    const testSummary = context.skipped ? undefined : context.testSummary;
     const event: StepStatusEvent = {
       step,
       status: "success",
@@ -234,6 +252,7 @@ export class StepController implements vscode.Disposable {
       message,
       tooltip,
       summary,
+      testSummary,
     };
     await this.deps.stateStore.setStepStatus(step, event);
     this.deps.bridge.postMessage({
@@ -314,11 +333,79 @@ export class StepController implements vscode.Disposable {
     }
   }
 
+  private async runTestsStep(options: {
+    readonly startedAt: Date;
+    readonly buffer: StepLogBuffer;
+    readonly copy: StepCopy;
+    readonly timeoutMs: number;
+  }): Promise<void> {
+    const orchestrator = this.orchestrator;
+    if (!orchestrator?.runTests) {
+      options.buffer.append("\nTests orchestrator is not available.\n");
+      options.buffer.close();
+      await this.handleFailure(
+        "tests",
+        options.startedAt,
+        new InfraError("Tests orchestrator unavailable."),
+        {
+          label: options.copy.label,
+          timeoutMs: options.timeoutMs,
+        },
+      );
+      return;
+    }
+
+    const parser = new TestSummaryParser();
+    try {
+      const result: TestPipelineResult = await orchestrator.runTests(
+        (chunk) => {
+          parser.consume(chunk);
+          options.buffer.append(chunk);
+        },
+      );
+      const durationMs = this.resolveDuration(options.startedAt, result.finishedAt);
+      const summary = this.resolveTestSummary(parser, result, durationMs);
+      if (summary) {
+        this.appendTestSummary(options.buffer, summary);
+      }
+      options.buffer.close();
+      if (result.success) {
+        await this.handleSuccess("tests", options.startedAt, {
+          label: options.copy.label,
+          skipped: false,
+          summary: this.resolveSummaryFromPipeline("tests", result.stepSummary),
+          testSummary: summary,
+        });
+      } else {
+        const pipelineError = result.error ?? new InfraError("Tests failed");
+        await this.handleFailure("tests", options.startedAt, pipelineError, {
+          label: options.copy.label,
+          timeoutMs: options.timeoutMs,
+          summary: result.stepSummary,
+          testSummary: summary,
+        });
+      }
+    } catch (error) {
+      const normalized = normalizeError(error, `${options.copy.label} failed`);
+      options.buffer.append(`\n${normalized.message}\n`);
+      options.buffer.close();
+      await this.handleFailure("tests", options.startedAt, error, {
+        label: options.copy.label,
+        timeoutMs: options.timeoutMs,
+      });
+    }
+  }
+
   private async handleFailure(
     step: StepId,
     startedAt: Date,
     error: unknown,
-    context: { label: string; timeoutMs: number; summary?: StepSummary },
+    context: {
+      label: string;
+      timeoutMs: number;
+      summary?: StepSummary;
+      testSummary?: TestSummary;
+    },
   ): Promise<void> {
     const normalized = normalizeError(error, `${context.label} failed`);
     const now = new Date();
@@ -339,6 +426,7 @@ export class StepController implements vscode.Disposable {
       message,
       tooltip,
       summary,
+      testSummary: context.testSummary,
     };
     await this.deps.stateStore.setStepStatus(step, event);
     this.deps.bridge.postMessage({
@@ -347,6 +435,47 @@ export class StepController implements vscode.Disposable {
     });
     this.deps.notifier.stepFinished(step, event);
     this.deps.notifier.showStepError(step, normalized.message);
+  }
+
+  private resolveDuration(startedAt: Date, finishedAt?: string | null): number {
+    const end = finishedAt ? new Date(finishedAt) : new Date();
+    const value = end.getTime() - startedAt.getTime();
+    return value > 0 ? value : 0;
+  }
+
+  private resolveTestSummary(
+    parser: TestSummaryParser,
+    result: TestPipelineResult,
+    durationMs: number,
+  ): TestSummary | undefined {
+    if (result.summary) {
+      return this.normalizeTestSummary(result.summary, durationMs);
+    }
+    return parser.finalize(durationMs);
+  }
+
+  private normalizeTestSummary(
+    summary: TestSummary,
+    fallbackDurationMs: number,
+  ): TestSummary {
+    const duration =
+      summary.durationMs > 0 ? summary.durationMs : fallbackDurationMs;
+    return {
+      total: Math.max(0, summary.total),
+      passed: Math.max(0, summary.passed),
+      failed: Math.max(0, summary.failed),
+      durationMs: duration > 0 ? duration : 0,
+    };
+  }
+
+  private appendTestSummary(
+    buffer: StepLogBuffer,
+    summary: TestSummary,
+  ): void {
+    const roundedDuration = Math.round(summary.durationMs);
+    buffer.append(
+      `\nTest summary: { total: ${summary.total}, passed: ${summary.passed}, failed: ${summary.failed}, durationMs: ${roundedDuration} }\n`,
+    );
   }
 
   private handleLogHistoryRequest(
@@ -454,6 +583,8 @@ export class StepController implements vscode.Disposable {
         return config.lintCommand;
       case "typecheck":
         return config.typecheckCommand;
+      case "tests":
+        return config.testsCommand;
       default:
         return "";
     }
@@ -530,7 +661,9 @@ export class StepController implements vscode.Disposable {
 }
 
 function isCommandStep(step: StepId): step is CommandStep {
-  return step === "format" || step === "lint" || step === "typecheck";
+  return (
+    step === "format" || step === "lint" || step === "typecheck" || step === "tests"
+  );
 }
 
 function formatDuration(durationMs: number): string {
@@ -538,4 +671,117 @@ function formatDuration(durationMs: number): string {
     return `${durationMs}ms`;
   }
   return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+class TestSummaryParser {
+  private remainder = "";
+  private total: number | undefined;
+  private passed: number | undefined;
+  private failed: number | undefined;
+
+  consume(chunk: string): void {
+    if (chunk.length === 0) {
+      return;
+    }
+    const text = this.remainder + chunk;
+    const lines = text.split(/\r?\n/);
+    this.remainder = lines.pop() ?? "";
+    for (const line of lines) {
+      this.processLine(line);
+    }
+  }
+
+  finalize(durationMs: number): TestSummary | undefined {
+    if (this.remainder.length > 0) {
+      this.processLine(this.remainder);
+      this.remainder = "";
+    }
+    if (
+      this.total === undefined &&
+      this.passed === undefined &&
+      this.failed === undefined
+    ) {
+      return undefined;
+    }
+
+    const total =
+      this.total ??
+      (this.passed !== undefined && this.failed !== undefined
+        ? this.passed + this.failed
+        : undefined);
+    const passed =
+      this.passed ??
+      (total !== undefined && this.failed !== undefined
+        ? Math.max(0, total - this.failed)
+        : undefined);
+    const failed =
+      this.failed ??
+      (total !== undefined && passed !== undefined
+        ? Math.max(0, total - passed)
+        : undefined);
+
+    if (
+      total === undefined ||
+      passed === undefined ||
+      failed === undefined
+    ) {
+      return undefined;
+    }
+
+    const safeDuration = durationMs > 0 ? durationMs : 0;
+    return {
+      total,
+      passed,
+      failed,
+      durationMs: safeDuration,
+    };
+  }
+
+  private processLine(line: string): void {
+    if (!line || !line.toLowerCase().includes("tests:")) {
+      return;
+    }
+    const lower = line.toLowerCase();
+    const startIndex = lower.indexOf("tests:");
+    if (startIndex === -1) {
+      return;
+    }
+    const fragment = line.slice(startIndex + 6);
+    const matches = fragment.matchAll(/(\d+)\s+(total|passed|failed)/gi);
+    let matched = false;
+    for (const match of matches) {
+      matched = true;
+      const value = Number.parseInt(match[1] ?? "", 10);
+      if (Number.isNaN(value)) {
+        continue;
+      }
+      const label = (match[2] ?? "").toLowerCase();
+      if (label === "total") {
+        this.total = value;
+      } else if (label === "passed") {
+        this.passed = value;
+      } else if (label === "failed") {
+        this.failed = value;
+      }
+    }
+    if (!matched) {
+      // Some runners output "Tests: <passed> passed, <total> total" without a
+      // label for failures. Attempt a looser parse for that case.
+      const fallbackMatches = fragment.matchAll(/(\d+)\s+([a-z]+)/gi);
+      for (const match of fallbackMatches) {
+        const value = Number.parseInt(match[1] ?? "", 10);
+        if (Number.isNaN(value)) {
+          continue;
+        }
+        const label = (match[2] ?? "").toLowerCase();
+        if (label.startsWith("pass")) {
+          this.passed = value;
+        } else if (label.startsWith("fail")) {
+          this.failed = value;
+        } else if (label.startsWith("total")) {
+          this.total = value;
+        }
+      }
+    }
+  }
 }
