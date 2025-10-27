@@ -36,6 +36,7 @@ export interface AppendLogEvent {
   readonly truncated: boolean;
   readonly timestamp: string;
   readonly reset?: boolean;
+  readonly hash: string;
 }
 
 export interface JournalEntry {
@@ -56,6 +57,7 @@ export interface PipelineResult {
     | InfraError
     | OfflineError
     | TimeoutError;
+  readonly stepSummary?: StepSummary;
 }
 
 export interface TestSummary {

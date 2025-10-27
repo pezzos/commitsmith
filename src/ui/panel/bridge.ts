@@ -36,6 +36,10 @@ export type UiIncomingMessage =
       readonly payload: { cursor?: string };
     }
   | {
+      readonly type: "REQUEST_LOG_PAGE";
+      readonly payload: { step: StepId; before?: string };
+    }
+  | {
       readonly type: "SET_SECTION_COLLAPSED";
       readonly payload: { sectionId: string; collapsed: boolean };
     }
@@ -68,6 +72,14 @@ export type UiOutgoingMessage =
   | { readonly type: "STATE_SYNC"; readonly payload: StateSnapshot }
   | { readonly type: "STEP_STATUS"; readonly payload: StepStatusEvent }
   | { readonly type: "APPEND_LOG"; readonly payload: AppendLogEvent }
+  | {
+      readonly type: "LOG_HISTORY";
+      readonly payload: {
+        readonly step: StepId;
+        readonly entries: readonly AppendLogEvent[];
+        readonly hasMore: boolean;
+      };
+    }
   | { readonly type: "JOURNAL_UPDATE"; readonly payload: JournalEntry[] }
   | { readonly type: "REVIEW_RESULT"; readonly payload: CodexReviewResult }
   | {
@@ -241,6 +253,18 @@ export class CommitSmithUIBridge implements vscode.Disposable {
         payload: {
           ...message.payload,
           chunk: this.masker.mask(message.payload.chunk),
+        },
+      };
+    }
+    if (message.type === "LOG_HISTORY") {
+      return {
+        ...message,
+        payload: {
+          ...message.payload,
+          entries: message.payload.entries.map((entry) => ({
+            ...entry,
+            chunk: this.masker.mask(entry.chunk),
+          })),
         },
       };
     }

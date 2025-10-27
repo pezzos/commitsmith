@@ -28,6 +28,9 @@ const STEP_SECTIONS: Array<{
   readonly label: string;
   readonly description: string;
   readonly buttonLabel: string;
+  readonly supportsCancel?: boolean;
+  readonly cancelTooltip?: string;
+  readonly supportsLogPagination?: boolean;
 }> = [
   {
     step: "format",
@@ -46,6 +49,9 @@ const STEP_SECTIONS: Array<{
     label: "Typecheck",
     description: "Execute the project type checking command.",
     buttonLabel: "Run Typecheck",
+    supportsCancel: true,
+    cancelTooltip: "Cancel not supported",
+    supportsLogPagination: true,
   },
   {
     step: "tests",
@@ -221,8 +227,40 @@ export class CommitSmithViewProvider
     readonly label: string;
     readonly description: string;
     readonly buttonLabel: string;
+    readonly supportsCancel?: boolean;
+    readonly cancelTooltip?: string;
+    readonly supportsLogPagination?: boolean;
   }): string {
     const sectionId: SectionId = `step.${section.step}`;
+    const cancelControl = section.supportsCancel
+      ? `
+              <button
+                class="cs-button cs-button--secondary"
+                type="button"
+                data-role="cancel-step"
+                data-step-id="${section.step}"
+                data-requires-repo
+                disabled
+                aria-disabled="true"
+                title="${section.cancelTooltip ?? "Cancel not supported"}"
+              >
+                Cancel
+              </button>`
+      : "";
+    const logPaginationControl = section.supportsLogPagination
+      ? `
+          <button
+            class="cs-button cs-button--link"
+            type="button"
+            data-role="load-more-logs"
+            data-step-id="${section.step}"
+            disabled
+            aria-disabled="true"
+            title="Load earlier log entries"
+          >
+            Load more logs
+          </button>`
+      : "";
     return `
       <article class="cs-step-card" data-section-id="${sectionId}">
         <header class="cs-step-header">
@@ -272,6 +310,7 @@ export class CommitSmithViewProvider
               >
                 Rerun failed only
               </button>
+              ${cancelControl}
             </div>
             <label class="cs-checkbox">
               <input
@@ -282,8 +321,11 @@ export class CommitSmithViewProvider
               Allow skip
             </label>
           </div>
-          <div class="cs-log" data-role="log" data-step-id="${section.step}" data-empty="true" tabindex="0">
-            Logs will appear here once this step runs.
+          <div class="cs-log-container">
+            <div class="cs-log" data-role="log" data-step-id="${section.step}" data-empty="true" tabindex="0">
+              Logs will appear here once this step runs.
+            </div>
+            ${logPaginationControl}
           </div>
         </div>
       </article>

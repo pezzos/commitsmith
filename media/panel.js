@@ -45,6 +45,7 @@
     "[data-requires-repo]",
   );
   const statusChips = new Map();
+  const runButtons = new Map();
   document
     .querySelectorAll("[data-role='status-chip']")
     .forEach((chip) => {
@@ -57,9 +58,14 @@
       statusChips.set(stepId, chip);
     });
 
+  const rerunLastButtons = new Map();
+  const cancelButtons = new Map();
+  const loadMoreButtons = new Map();
+  const runningSteps = new Set();
   const logContainers = new Map();
-  const logContents = new Map();
+  const logStates = new Map();
   const LOG_PLACEHOLDER = "Logs will appear here once this step runs.";
+  const MAX_VISIBLE_LOG_ENTRIES = 50;
   document
     .querySelectorAll("[data-role='log']")
     .forEach((element) => {
@@ -70,10 +76,9 @@
       element.dataset.empty = "true";
       element.textContent = LOG_PLACEHOLDER;
       logContainers.set(stepId, element);
-      logContents.set(stepId, "");
+      logStates.set(stepId, createEmptyLogState());
     });
 
-  const rerunLastButtons = new Map();
   document
     .querySelectorAll("[data-role='rerun-last']")
     .forEach((button) => {
@@ -89,7 +94,45 @@
         });
       });
     });
-  updateRerunButtons();
+  rerunLastButtons.forEach((_button, stepId) => {
+    updateRerunButton(stepId);
+  });
+
+  document
+    .querySelectorAll("[data-role='cancel-step']")
+    .forEach((button) => {
+      const stepId = button.getAttribute("data-step-id");
+      if (!stepId) {
+        return;
+      }
+      cancelButtons.set(stepId, button);
+    });
+
+  document
+    .querySelectorAll("[data-role='load-more-logs']")
+    .forEach((button) => {
+      const stepId = button.getAttribute("data-step-id");
+      if (!stepId) {
+        return;
+      }
+      loadMoreButtons.set(stepId, button);
+      button.addEventListener("click", () => {
+        const stateEntry = logStates.get(stepId);
+        const cursor =
+          stateEntry && stateEntry.entries.length > 0
+            ? stateEntry.entries[0].hash
+            : undefined;
+        vscode.postMessage({
+          type: "REQUEST_LOG_PAGE",
+          payload: { step: stepId, before: cursor },
+        });
+        button.disabled = true;
+        button.setAttribute("aria-disabled", "true");
+      });
+    });
+  loadMoreButtons.forEach((_button, stepId) => {
+    updateLoadMoreButton(stepId);
+  });
 
   document
     .querySelectorAll("[data-action='toggle-section']")
@@ -134,11 +177,12 @@
   }
 
   document.querySelectorAll("[data-role='run-step']").forEach((button) => {
+    const stepId = button.getAttribute("data-step-id");
+    if (!stepId) {
+      return;
+    }
+    runButtons.set(stepId, button);
     button.addEventListener("click", () => {
-      const stepId = button.getAttribute("data-step-id");
-      if (!stepId) {
-        return;
-      }
       vscode.postMessage({
         type: "RUN_STEP",
         payload: { step: stepId },
@@ -224,6 +268,9 @@
       case "APPEND_LOG":
         applyLog(data.payload);
         break;
+      case "LOG_HISTORY":
+        applyLogHistory(data.payload);
+        break;
       default:
         break;
     }
@@ -255,7 +302,15 @@
     Object.values(state.stepStatus).forEach((status) =>
       applyStepStatus(status, false),
     );
-    updateRerunButtons();
+    runButtons.forEach((_button, stepId) => {
+      updateRunButtonState(stepId);
+    });
+    rerunLastButtons.forEach((_button, stepId) => {
+      updateRerunButton(stepId);
+    });
+    loadMoreButtons.forEach((_button, stepId) => {
+      updateLoadMoreButton(stepId);
+    });
   }
 
   function applyOffline(isOffline) {
@@ -387,54 +442,218 @@
       });
   }
 
-  function updateRerunButtons() {
-    rerunLastButtons.forEach((button, stepId) => {
-      const hasStatus =
-        !!state.stepStatus && !!state.stepStatus[stepId];
-      button.disabled = !hasStatus;
-      if (!hasStatus) {
-        button.setAttribute(
-          "title",
-          "Run this step once to enable rerun",
-        );
-        button.setAttribute("aria-disabled", "true");
-      } else {
-        button.removeAttribute("aria-disabled");
-        button.setAttribute("title", "Rerun last command");
-      }
-    });
+  function updateRerunButton(stepId) {
+    const button = rerunLastButtons.get(stepId);
+    if (!button) {
+      return;
+    }
+    const hasStatus =
+      !!state.stepStatus && !!state.stepStatus[stepId];
+    if (!state.repositoryAvailable) {
+      button.disabled = true;
+      button.setAttribute("aria-disabled", "true");
+      button.setAttribute(
+        "title",
+        "Select a repository to run CommitSmith",
+      );
+      return;
+    }
+    if (!hasStatus) {
+      button.disabled = true;
+      button.setAttribute("aria-disabled", "true");
+      button.setAttribute(
+        "title",
+        "Run this step once to enable rerun",
+      );
+      return;
+    }
+    if (runningSteps.has(stepId)) {
+      button.disabled = true;
+      button.setAttribute("aria-disabled", "true");
+      button.setAttribute(
+        "title",
+        "Wait for the current run to finish",
+      );
+      return;
+    }
+    button.disabled = false;
+    button.removeAttribute("aria-disabled");
+    button.setAttribute("title", "Rerun last command");
   }
 
-  function applyLog(event) {
+  function updateRunButtonState(stepId) {
+    const button = runButtons.get(stepId);
+    if (!button) {
+      return;
+    }
+    const shouldDisable =
+      runningSteps.has(stepId) || !state.repositoryAvailable;
+    button.disabled = shouldDisable;
+    if (shouldDisable) {
+      button.setAttribute("aria-disabled", "true");
+    } else {
+      button.removeAttribute("aria-disabled");
+    }
+  }
+
+  function createEmptyLogState() {
+    return {
+      entries: [],
+      hashes: new Set(),
+      truncated: false,
+      hasMore: false,
+      expanded: false,
+    };
+  }
+
+  function resetLogState(logState) {
+    logState.entries = [];
+    logState.hashes.clear();
+    logState.truncated = false;
+    logState.hasMore = false;
+    logState.expanded = false;
+  }
+
+  function getOrCreateLogState(stepId) {
+    let logState = logStates.get(stepId);
+    if (!logState) {
+      logState = createEmptyLogState();
+      logStates.set(stepId, logState);
+    }
+    return logState;
+  }
+
+  function updateLoadMoreButton(stepId) {
+    const button = loadMoreButtons.get(stepId);
+    if (!button) {
+      return;
+    }
+    if (!state.repositoryAvailable) {
+      button.disabled = true;
+      button.setAttribute("aria-disabled", "true");
+      return;
+    }
+    const logState = logStates.get(stepId);
+    const enable = !!logState && logState.hasMore;
+    button.disabled = !enable;
+    if (enable) {
+      button.removeAttribute("aria-disabled");
+    } else {
+      button.setAttribute("aria-disabled", "true");
+    }
+  }
+
+  function applyLog(
+    event,
+    mode = "append",
+    updateControls = true,
+    renderView = true,
+  ) {
     if (!event || typeof event !== "object") {
       return;
     }
-    const container = logContainers.get(event.step);
+    const logState = getOrCreateLogState(event.step);
+    if (event.reset) {
+      resetLogState(logState);
+      if (renderView) {
+        renderLog(event.step, false);
+      }
+      if (updateControls) {
+        updateLoadMoreButton(event.step);
+      }
+      return;
+    }
+    if (event.hash && logState.hashes.has(event.hash)) {
+      return;
+    }
+    if (event.hash) {
+      logState.hashes.add(event.hash);
+    }
+    if (mode === "prepend") {
+      logState.entries.unshift(event);
+      logState.expanded = true;
+    } else {
+      logState.entries.push(event);
+      if (
+        !logState.expanded &&
+        logState.entries.length > MAX_VISIBLE_LOG_ENTRIES
+      ) {
+        const removeCount =
+          logState.entries.length - MAX_VISIBLE_LOG_ENTRIES;
+        const removed = logState.entries.splice(0, removeCount);
+        for (const entry of removed) {
+          logState.hashes.delete(entry.hash);
+        }
+        logState.hasMore = true;
+      }
+    }
+    if (event.truncated) {
+      logState.truncated = true;
+    }
+    if (renderView) {
+      renderLog(event.step, mode === "prepend");
+    }
+    if (updateControls) {
+      updateLoadMoreButton(event.step);
+    }
+  }
+
+  function renderLog(stepId, wasPrepend) {
+    const container = logContainers.get(stepId);
     if (!container) {
       return;
     }
-    if (event.reset) {
-      logContents.set(event.step, "");
-      container.textContent = LOG_PLACEHOLDER;
-      container.dataset.empty = "true";
-      container.removeAttribute("data-truncated");
-      return;
-    }
-    const current = logContents.get(event.step) ?? "";
-    const next = current + (event.chunk || "");
-    logContents.set(event.step, next);
-    if (next.trim().length === 0) {
+    const logState = getOrCreateLogState(stepId);
+    const previousScrollHeight = container.scrollHeight;
+    const previousScrollTop = container.scrollTop;
+    const isAtBottom =
+      container.scrollTop + container.clientHeight >=
+      container.scrollHeight - 8;
+    if (logState.entries.length === 0) {
       container.textContent = LOG_PLACEHOLDER;
       container.dataset.empty = "true";
     } else {
-      container.textContent = next;
+      container.textContent = logState.entries
+        .map((entry) => entry.chunk)
+        .join("");
       container.dataset.empty = "false";
     }
-    if (event.truncated) {
+    if (logState.truncated) {
       container.dataset.truncated = "true";
     } else {
       container.removeAttribute("data-truncated");
     }
+    if (wasPrepend) {
+      const newScrollHeight = container.scrollHeight;
+      container.scrollTop =
+        previousScrollTop + (newScrollHeight - previousScrollHeight);
+    } else if (isAtBottom) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+
+  function applyLogHistory(payload) {
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      !Array.isArray(payload.entries)
+    ) {
+      return;
+    }
+    const stepId = payload.step;
+    if (!stepId) {
+      return;
+    }
+    const logState = getOrCreateLogState(stepId);
+    if (payload.entries.length > 0) {
+      for (let index = payload.entries.length - 1; index >= 0; index -= 1) {
+        applyLog(payload.entries[index], "prepend", false, false);
+      }
+      renderLog(stepId, true);
+    }
+    logState.hasMore = !!payload.hasMore;
+    logState.expanded = true;
+    updateLoadMoreButton(stepId);
   }
 
   function applyStepStatus(event, store = true) {
@@ -443,39 +662,41 @@
     }
     if (store) {
       state.stepStatus[event.step] = event;
-      updateRerunButtons();
     }
     const chip = statusChips.get(event.step);
-    if (!chip) {
-      return;
+    if (chip) {
+      const status = event.status;
+      chip.dataset.status = status;
+      let label = "Idle";
+      switch (status) {
+        case "running":
+          label = event.message || "Running…";
+          break;
+        case "success":
+          label = event.message || "Success";
+          break;
+        case "error":
+          label = event.message || "Needs attention";
+          break;
+        default:
+          chip.dataset.status = "idle";
+          break;
+      }
+      chip.textContent = label;
+      if (event.tooltip) {
+        chip.title = event.tooltip;
+      } else if (event.message) {
+        chip.title = event.message;
+      } else {
+        chip.removeAttribute("title");
+      }
     }
-    const status = event.status;
-    chip.dataset.status = status;
-    let label = "Idle";
-    switch (status) {
-      case "running":
-        label = event.message || "Running…";
-        break;
-      case "success":
-        label = event.message || "Success";
-        break;
-      case "error":
-        label = event.message || "Needs attention";
-        break;
-      default:
-        chip.dataset.status = "idle";
-        break;
-    }
-    chip.textContent = label;
-    if (event.tooltip) {
-      chip.title = event.tooltip;
-    } else if (event.message) {
-      chip.title = event.message;
+    if (event.status === "running") {
+      runningSteps.add(event.step);
     } else {
-      chip.removeAttribute("title");
+      runningSteps.delete(event.step);
     }
-    if (!store) {
-      updateRerunButtons();
-    }
+    updateRunButtonState(event.step);
+    updateRerunButton(event.step);
   }
 })();

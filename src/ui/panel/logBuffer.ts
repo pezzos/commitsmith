@@ -1,11 +1,12 @@
 import { CommitSmithUIBridge } from "./bridge";
-import { StepId } from "../../shared/types";
+import { AppendLogEvent, StepId } from "../../shared/types";
 import { SecretMasker } from "./security";
 
 const MAX_LINES = 500;
 const MAX_BYTES = 100 * 1024;
 const FLUSH_INTERVAL_MS = 100;
 const TRUNCATED_MARKER = "… truncated";
+const HISTORY_LIMIT = 200;
 
 export class StepLogBuffer {
   private readonly bridge: CommitSmithUIBridge;
@@ -17,6 +18,9 @@ export class StepLogBuffer {
   private partial = "";
   private queue: string[] = [];
   private flushTimer: NodeJS.Timeout | undefined;
+  private history: AppendLogEvent[] = [];
+  private runId = 0;
+  private sequence = 0;
 
   constructor(
     step: StepId,
@@ -35,16 +39,18 @@ export class StepLogBuffer {
     this.lineCount = 0;
     this.byteCount = 0;
     this.truncated = false;
-    this.bridge.postMessage({
-      type: "APPEND_LOG",
-      payload: {
-        step: this.step,
-        chunk: "",
-        truncated: false,
-        timestamp: new Date().toISOString(),
-        reset: true,
-      },
-    });
+    this.history = [];
+    this.runId += 1;
+    this.sequence = 0;
+    const event: AppendLogEvent = {
+      step: this.step,
+      chunk: "",
+      truncated: false,
+      timestamp: new Date().toISOString(),
+      reset: true,
+      hash: this.nextHash(),
+    };
+    this.dispatch(event, { recordHistory: false });
   }
 
   append(rawChunk: string): void {
@@ -129,15 +135,14 @@ export class StepLogBuffer {
     }
     const chunk = this.queue.join("");
     this.queue = [];
-    this.bridge.postMessage({
-      type: "APPEND_LOG",
-      payload: {
-        step: this.step,
-        chunk,
-        truncated: this.truncated,
-        timestamp: new Date().toISOString(),
-      },
-    });
+    const event: AppendLogEvent = {
+      step: this.step,
+      chunk,
+      truncated: this.truncated,
+      timestamp: new Date().toISOString(),
+      hash: this.nextHash(),
+    };
+    this.dispatch(event);
   }
 
   private clearTimer(): void {
@@ -145,5 +150,48 @@ export class StepLogBuffer {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
     }
+  }
+
+  getHistory(
+    beforeHash?: string,
+    limit = 50,
+  ): { readonly entries: AppendLogEvent[]; readonly hasMore: boolean } {
+    if (this.history.length === 0 || limit <= 0) {
+      return { entries: [], hasMore: false };
+    }
+    let endIndex = this.history.length;
+    if (beforeHash) {
+      const index = this.history.findIndex(
+        (entry) => entry.hash === beforeHash,
+      );
+      if (index >= 0) {
+        endIndex = index;
+      }
+    }
+    const startIndex = Math.max(0, endIndex - limit);
+    const entries = this.history.slice(startIndex, endIndex);
+    const hasMore = startIndex > 0;
+    return { entries, hasMore };
+  }
+
+  private nextHash(): string {
+    this.sequence += 1;
+    return `${this.step}:${this.runId}:${this.sequence}`;
+  }
+
+  private dispatch(
+    event: AppendLogEvent,
+    options: { readonly recordHistory?: boolean } = {},
+  ): void {
+    if (options.recordHistory ?? true) {
+      this.history.push(event);
+      if (this.history.length > HISTORY_LIMIT) {
+        this.history.splice(0, this.history.length - HISTORY_LIMIT);
+      }
+    }
+    this.bridge.postMessage({
+      type: "APPEND_LOG",
+      payload: event,
+    });
   }
 }

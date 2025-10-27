@@ -23,9 +23,12 @@ import {
   describeStep,
   formatTimeoutForStep,
   normalizeError,
+  OrchestratorCommands,
 } from "./orchestrator";
 
-type CommandStep = "format" | "lint";
+const LOG_HISTORY_PAGE_SIZE = 50;
+
+type CommandStep = "format" | "lint" | "typecheck";
 
 interface StepCopy {
   readonly label: string;
@@ -35,6 +38,7 @@ interface StepCopy {
 const COMMAND_STEP_COPY: Record<CommandStep, StepCopy> = {
   format: { label: "Format", noun: "formatter" },
   lint: { label: "Lint", noun: "linter" },
+  typecheck: { label: "Typecheck", noun: "typechecker" },
 };
 
 interface StepControllerDeps {
@@ -43,18 +47,26 @@ interface StepControllerDeps {
   readonly gate: StepExecutionGate;
   readonly repositorySelector: RepositorySelector;
   readonly notifier: CommitSmithNotifier;
+  readonly orchestrator?: Pick<OrchestratorCommands, "runTypecheck">;
 }
 
 export class StepController implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly logBuffers = new Map<StepId, StepLogBuffer>();
   private readonly masker = new SecretMasker();
+  private readonly orchestrator?: Pick<OrchestratorCommands, "runTypecheck">;
 
   constructor(private readonly deps: StepControllerDeps) {
+    this.orchestrator = deps.orchestrator;
     this.disposables.push(
       this.deps.bridge.onDidReceiveMessage((message) => {
         if (message.type === "RUN_STEP") {
           void this.handleRunStep(message.payload.step);
+        } else if (message.type === "REQUEST_LOG_PAGE") {
+          this.handleLogHistoryRequest(
+            message.payload.step,
+            message.payload.before,
+          );
         }
       }),
     );
@@ -156,19 +168,29 @@ export class StepController implements vscode.Disposable {
     this.deps.notifier.stepStarted(step);
 
     try {
-      await this.executeCommand(
-        step,
-        command,
-        repo.rootUri.fsPath,
-        buffer,
-        timeoutMs,
-        copy,
-      );
-      buffer.close();
-      await this.handleSuccess(step, startedAt, {
-        label: copy.label,
-        skipped: false,
-      });
+      if (step === "typecheck") {
+        await this.runTypecheckStep({
+          startedAt,
+          buffer,
+          copy,
+          timeoutMs,
+        });
+      } else {
+        await this.executeCommand(
+          step,
+          command,
+          repo.rootUri.fsPath,
+          buffer,
+          timeoutMs,
+          copy,
+        );
+        buffer.close();
+        await this.handleSuccess(step, startedAt, {
+          label: copy.label,
+          skipped: false,
+          summary: this.createSuccessSummary(step),
+        });
+      }
     } catch (error) {
       buffer.append(
         `\n${normalizeError(error, `${copy.label} failed`).message}\n`,
@@ -186,7 +208,12 @@ export class StepController implements vscode.Disposable {
   private async handleSuccess(
     step: StepId,
     startedAt: Date,
-    context: { label: string; skipped: boolean; skipMessage?: string },
+    context: {
+      label: string;
+      skipped: boolean;
+      skipMessage?: string;
+      summary?: StepSummary;
+    },
   ): Promise<void> {
     const endedAt = new Date();
     const duration = endedAt.getTime() - startedAt.getTime();
@@ -197,7 +224,7 @@ export class StepController implements vscode.Disposable {
     const tooltip = context.skipped ? message : completedMessage;
     const summary: StepSummary | undefined = context.skipped
       ? undefined
-      : { kind: "success", errorCount: 0 };
+      : context.summary ?? this.createSuccessSummary(step);
     const event: StepStatusEvent = {
       step,
       status: "success",
@@ -216,17 +243,93 @@ export class StepController implements vscode.Disposable {
     this.deps.notifier.stepFinished(step, event);
   }
 
+  private async runTypecheckStep(options: {
+    readonly startedAt: Date;
+    readonly buffer: StepLogBuffer;
+    readonly copy: StepCopy;
+    readonly timeoutMs: number;
+  }): Promise<void> {
+    const orchestrator = this.orchestrator;
+    if (!orchestrator?.runTypecheck) {
+      options.buffer.append(
+        "\nTypecheck orchestrator is not available.\n",
+      );
+      options.buffer.close();
+      await this.handleFailure(
+        "typecheck",
+        options.startedAt,
+        new InfraError("Typecheck orchestrator unavailable."),
+        {
+          label: options.copy.label,
+          timeoutMs: options.timeoutMs,
+        },
+      );
+      return;
+    }
+
+    try {
+      const result = await orchestrator.runTypecheck((chunk) => {
+        options.buffer.append(chunk);
+      });
+      options.buffer.close();
+      if (result.success) {
+        await this.handleSuccess("typecheck", options.startedAt, {
+          label: options.copy.label,
+          skipped: false,
+          summary: this.resolveSummaryFromPipeline(
+            "typecheck",
+            result.stepSummary,
+          ),
+        });
+      } else {
+        const pipelineError =
+          result.error ?? new InfraError("Typecheck failed");
+        await this.handleFailure(
+          "typecheck",
+          options.startedAt,
+          pipelineError,
+          {
+            label: options.copy.label,
+            timeoutMs: options.timeoutMs,
+            summary: result.stepSummary,
+          },
+        );
+      }
+    } catch (error) {
+      const normalized = normalizeError(
+        error,
+        `${options.copy.label} failed`,
+      );
+      options.buffer.append(`\n${normalized.message}\n`);
+      options.buffer.close();
+      await this.handleFailure(
+        "typecheck",
+        options.startedAt,
+        error,
+        {
+          label: options.copy.label,
+          timeoutMs: options.timeoutMs,
+        },
+      );
+    }
+  }
+
   private async handleFailure(
     step: StepId,
     startedAt: Date,
     error: unknown,
-    context: { label: string; timeoutMs: number },
+    context: { label: string; timeoutMs: number; summary?: StepSummary },
   ): Promise<void> {
     const normalized = normalizeError(error, `${context.label} failed`);
     const now = new Date();
-    const tooltip = this.describeErrorTooltip(error, normalized, context.timeoutMs);
+    const tooltip = this.describeErrorTooltip(
+      error,
+      normalized,
+      context.timeoutMs,
+    );
     const message = this.describeErrorMessage(tooltip, normalized);
-    const summary = this.createErrorSummary(normalized);
+    const summary =
+      context.summary ?? this.createErrorSummary(step, normalized);
     const event: StepStatusEvent = {
       step,
       status: "error",
@@ -244,6 +347,36 @@ export class StepController implements vscode.Disposable {
     });
     this.deps.notifier.stepFinished(step, event);
     this.deps.notifier.showStepError(step, normalized.message);
+  }
+
+  private handleLogHistoryRequest(
+    step: StepId,
+    before?: string,
+  ): void {
+    const buffer = this.logBuffers.get(step);
+    if (!buffer) {
+      this.deps.bridge.postMessage({
+        type: "LOG_HISTORY",
+        payload: {
+          step,
+          entries: [],
+          hasMore: false,
+        },
+      });
+      return;
+    }
+    const { entries, hasMore } = buffer.getHistory(
+      before,
+      LOG_HISTORY_PAGE_SIZE,
+    );
+    this.deps.bridge.postMessage({
+      type: "LOG_HISTORY",
+      payload: {
+        step,
+        entries,
+        hasMore,
+      },
+    });
   }
 
   private describeErrorTooltip(
@@ -274,9 +407,29 @@ export class StepController implements vscode.Disposable {
     return tooltip;
   }
 
-  private createErrorSummary(normalized: Error): StepSummary {
+  private createSuccessSummary(step: StepId): StepSummary {
+    if (step === "typecheck") {
+      return { kind: "success", errorCount: 0, warningCount: 0 };
+    }
+    return { kind: "success", errorCount: 0 };
+  }
+
+  private resolveSummaryFromPipeline(
+    step: StepId,
+    summary?: StepSummary,
+  ): StepSummary {
+    if (summary) {
+      return summary;
+    }
+    return this.createSuccessSummary(step);
+  }
+
+  private createErrorSummary(step: StepId, normalized: Error): StepSummary {
     if (normalized instanceof UserError) {
       return { kind: "error", errorCount: 1 };
+    }
+    if (step === "typecheck") {
+      return { kind: "error", errorCount: 0, warningCount: 0 };
     }
     return { kind: "error" };
   }
@@ -299,6 +452,8 @@ export class StepController implements vscode.Disposable {
         return config.formatCommand;
       case "lint":
         return config.lintCommand;
+      case "typecheck":
+        return config.typecheckCommand;
       default:
         return "";
     }
@@ -375,7 +530,7 @@ export class StepController implements vscode.Disposable {
 }
 
 function isCommandStep(step: StepId): step is CommandStep {
-  return step === "format" || step === "lint";
+  return step === "format" || step === "lint" || step === "typecheck";
 }
 
 function formatDuration(durationMs: number): string {

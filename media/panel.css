@@ -152,6 +152,12 @@
   align-items: center;
 }
 
+.cs-log-container {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+}
+
 .cs-log {
   min-height: 96px;
   padding: 12px;
@@ -238,6 +244,11 @@
 .cs-button--link {
   background: none;
   color: var(--vscode-textLink-foreground);
+}
+
+.cs-log-container .cs-button--link {
+  justify-self: start;
+  padding: 0;
 }
 
 .cs-button--link:hover,

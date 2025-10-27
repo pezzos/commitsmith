@@ -12,6 +12,7 @@ import { StepController } from "./stepController";
 import { UiTelemetryReporter } from "../telemetryReporter";
 import { onCodexOfflineFallback, checkCodexHealth } from "../../codex";
 import { StepId, StepStatusEvent } from "../../shared/types";
+import { createPanelOrchestrator } from "./panelOrchestrator";
 
 const COMMAND_OPEN_PANEL = "commitSmith.openPanel";
 const COMMAND_RUN_FORMAT = "commitSmith.runFormat";
@@ -58,12 +59,14 @@ export function initializeUiInfrastructure(
   });
   const telemetryReporter = new UiTelemetryReporter();
   const notifier = new CommitSmithNotifier(bridge, telemetryReporter);
+  const orchestrator = createPanelOrchestrator(repositorySelector);
   const stepController = new StepController({
     stateStore,
     bridge,
     gate,
     repositorySelector,
     notifier,
+    orchestrator,
   });
 
   context.subscriptions.push(
