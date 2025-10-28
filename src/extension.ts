@@ -778,12 +778,25 @@ class PipelineCheckScheduler implements vscode.Disposable {
   }
 }
 export function activate(context: vscode.ExtensionContext): void {
-  initializeConfigWatcher(context);
-  initializeUiInfrastructure(context);
-
   const outputChannel = getOutputChannel();
   if (isVscodeOutputChannel(outputChannel)) {
     context.subscriptions.push(outputChannel);
+  }
+
+  try {
+    initializeConfigWatcher(context);
+    initializeUiInfrastructure(context);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.stack ?? error.message : String(error);
+    outputChannel.appendLine(
+      `[CommitSmith ❌] Activation failed: ${message}`,
+    );
+    console.error("[CommitSmith] Failed to activate extension", error);
+    void vscode.window.showErrorMessage(
+      "CommitSmith failed to activate. Check the CommitSmith output channel for details.",
+    );
+    return;
   }
 
   const laneController = new PipelineLaneController(context);

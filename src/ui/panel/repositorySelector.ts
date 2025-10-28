@@ -19,23 +19,66 @@ interface GitAPI {
   readonly selectedRepository?: GitRepository;
 }
 
-interface GitExtension {
+interface GitExtensionExports {
   readonly enabled: boolean;
   getAPI(version: number): GitAPI;
 }
 
-function tryGetGitApi(): GitAPI | undefined {
-  const gitExtension =
-    vscode.extensions.getExtension<GitExtension>("vscode.git");
-  if (!gitExtension) {
-    return undefined;
+interface GitApiSnapshot {
+  readonly api?: GitAPI;
+  readonly activation?: Promise<GitAPI | undefined>;
+}
+
+function resolveGitApi(): GitApiSnapshot {
+  try {
+    const gitExtension =
+      vscode.extensions.getExtension<GitExtensionExports>("vscode.git");
+    if (!gitExtension) {
+      return {};
+    }
+    if (gitExtension.isActive) {
+      try {
+        const api = gitExtension.exports?.getAPI?.(1);
+        return { api };
+      } catch (error) {
+        console.warn(
+          "[CommitSmith] Git extension exports unavailable.",
+          error,
+        );
+        return {};
+      }
+    }
+
+    const activation = Promise.resolve(
+      gitExtension.activate(),
+    )
+      .then<GitAPI | undefined>((exports) => {
+        try {
+          return exports?.getAPI?.(1);
+        } catch (error) {
+          console.warn(
+            "[CommitSmith] Git extension activation completed but API unavailable.",
+            error,
+          );
+          return undefined;
+        }
+      })
+      .catch((error) => {
+        console.warn(
+          "[CommitSmith] Failed to activate Git extension.",
+          error,
+        );
+        return undefined;
+      });
+
+    return { activation };
+  } catch (error) {
+    console.warn(
+      "[CommitSmith] Exception while resolving Git extension.",
+      error,
+    );
+    return {};
   }
-  const extension = gitExtension.isActive ? gitExtension : undefined;
-  if (!extension) {
-    void gitExtension.activate();
-  }
-  const api = gitExtension.exports?.getAPI?.(1);
-  return api;
 }
 
 export class RepositorySelector implements vscode.Disposable {
@@ -44,33 +87,12 @@ export class RepositorySelector implements vscode.Disposable {
   readonly onDidChange = this.emitter.event;
 
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly gitDisposables: vscode.Disposable[] = [];
   private gitApi: GitAPI | undefined;
   private current: RepositorySnapshot | null = null;
 
   constructor() {
-    this.gitApi = tryGetGitApi();
-    this.refresh();
-    if (this.gitApi) {
-      const { onDidOpenRepository, onDidCloseRepository } = this.gitApi;
-      if (typeof onDidOpenRepository === "function") {
-        this.disposables.push(onDidOpenRepository(() => this.refresh()));
-      }
-      if (typeof onDidCloseRepository === "function") {
-        this.disposables.push(onDidCloseRepository(() => this.refresh()));
-      }
-      if (this.gitApi.onDidChangeSelectedRepository) {
-        this.disposables.push(
-          this.gitApi.onDidChangeSelectedRepository(() =>
-            this.refresh(),
-          ),
-        );
-      }
-      if (this.gitApi.onDidChangeState) {
-        this.disposables.push(
-          this.gitApi.onDidChangeState(() => this.refresh()),
-        );
-      }
-    }
+    this.initializeGitIntegration();
     this.disposables.push(
       vscode.workspace.onDidChangeWorkspaceFolders(() =>
         this.refresh(),
@@ -105,7 +127,8 @@ export class RepositorySelector implements vscode.Disposable {
   }
 
   dispose(): void {
-    for (const disposable of this.disposables) {
+    this.disposeGitListeners();
+    for (const disposable of this.disposables.splice(0)) {
       disposable.dispose();
     }
     this.emitter.dispose();
@@ -132,5 +155,56 @@ export class RepositorySelector implements vscode.Disposable {
     }
 
     return null;
+  }
+
+  private initializeGitIntegration(): void {
+    const snapshot = resolveGitApi();
+    if (snapshot.api) {
+      this.attachGitApi(snapshot.api);
+      this.refresh();
+      return;
+    }
+
+    if (snapshot.activation) {
+      void snapshot.activation.then((api) => {
+        if (!api) {
+          this.refresh();
+          return;
+        }
+        this.attachGitApi(api);
+        this.refresh();
+      });
+      return;
+    }
+
+    this.refresh();
+  }
+
+  private attachGitApi(api: GitAPI): void {
+    this.gitApi = api;
+    this.disposeGitListeners();
+    const { onDidOpenRepository, onDidCloseRepository } = api;
+    if (typeof onDidOpenRepository === "function") {
+      this.gitDisposables.push(onDidOpenRepository(() => this.refresh()));
+    }
+    if (typeof onDidCloseRepository === "function") {
+      this.gitDisposables.push(onDidCloseRepository(() => this.refresh()));
+    }
+    if (api.onDidChangeSelectedRepository) {
+      this.gitDisposables.push(
+        api.onDidChangeSelectedRepository(() => this.refresh()),
+      );
+    }
+    if (api.onDidChangeState) {
+      this.gitDisposables.push(
+        api.onDidChangeState(() => this.refresh()),
+      );
+    }
+  }
+
+  private disposeGitListeners(): void {
+    for (const disposable of this.gitDisposables.splice(0)) {
+      disposable.dispose();
+    }
   }
 }

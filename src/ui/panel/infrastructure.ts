@@ -165,7 +165,7 @@ function registerCommands(
     notifier: CommitSmithNotifier;
   },
 ): void {
-  const focusViewCommand = "workbench.view.extension.commitSmith";
+  const focusViewCommand = `${CommitSmithViewProvider.viewType}.focus`;
   context.subscriptions.push(
     vscode.commands.registerCommand(COMMAND_OPEN_PANEL, () =>
       vscode.commands.executeCommand(focusViewCommand),
