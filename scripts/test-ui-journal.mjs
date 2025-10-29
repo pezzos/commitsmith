@@ -11,9 +11,7 @@ const {
   ensureJournalEntryHash,
   dedupeJournalEntries,
   applyManualNotesToDraft,
-} = await import(
-  path.join(distPath, "ui/panel/journalUtils.js")
-);
+} = await import(path.join(distPath, "ui/panel/journalUtils.js"));
 
 console.info("Running journal utility tests...");
 
@@ -73,7 +71,10 @@ const updatedDraft = applyManualNotesToDraft(
   [olderNote],
   false,
 );
-assert.equal(updatedDraft, "feat: add workflow\n\nNotes:\n- First note");
+assert.equal(
+  updatedDraft,
+  "feat: add workflow\n\nNotes:\n- First note",
+);
 
 const optOutDraft = applyManualNotesToDraft(
   updatedDraft,

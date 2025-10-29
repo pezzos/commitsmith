@@ -10,7 +10,12 @@ import { StateSnapshot, UiIncomingMessage } from "./bridge";
 
 const VIEW_ID = "commitSmith.panel";
 
-type SectionId = `step.${StepId}` | "journal" | "manual" | "commit";
+type SectionId =
+  | "checks"
+  | `step.${StepId}`
+  | "journal"
+  | "manual"
+  | "commit";
 
 interface UiInfrastructureDeps {
   readonly stateStore: CommitSmithStateStore;
@@ -176,9 +181,14 @@ export class CommitSmithViewProvider
     nonce: string,
   ): { head: string; body: string } {
     const cssUri = this.requireResource("media/panel.css");
+    // Local shim that mirrors the VS Code Webview UI Toolkit controls we rely on.
+    const toolkitUri = this.requireResource("media/toolkit-shim.js");
     const jsUri = this.requireResource("media/panel.js");
     return {
-      head: `<link rel="stylesheet" href="${cssUri}">`,
+      head: [
+        `<link rel="stylesheet" href="${cssUri}">`,
+        `<script type="module" nonce="${nonce}" src="${toolkitUri}"></script>`,
+      ].join(""),
       body: `
   <div class="cs-root" data-focus-start>
     <div class="cs-offline-banner" role="status" aria-live="polite" hidden data-element="offline-banner">
@@ -189,10 +199,7 @@ export class CommitSmithViewProvider
       <span>Select a repository to run CommitSmith</span>
     </div>
     <div class="cs-content" data-element="content">
-      ${this.renderStepSections()}
-      ${this.renderJournalSection()}
-      ${this.renderManualNoteSection()}
-      ${this.renderCommitSection()}
+      ${this.renderSections()}
     </div>
   </div>
   <script nonce="${nonce}" src="${jsUri}"></script>
@@ -200,18 +207,40 @@ export class CommitSmithViewProvider
     };
   }
 
-  private renderStepSections(): string {
+  private renderSections(): string {
+    return [
+      this.renderChecksSection(),
+      this.renderJournalSection(),
+      this.renderManualNoteSection(),
+      this.renderCommitSection(),
+    ].join("\n");
+  }
+
+  private renderChecksSection(): string {
     return `
-    <section class="cs-section" aria-label="Pipeline checks">
-      <header class="cs-section-header">
-        <h2 class="cs-section-title">Checks</h2>
-      </header>
-      <div class="cs-section-body">
-        ${STEP_SECTIONS.map((section) =>
-          this.renderStepCard(section),
-        ).join("\n")}
-      </div>
-    </section>
+      <section
+        class="cs-section"
+        data-section-id="checks"
+        aria-label="Pipeline checks"
+      >
+        <button
+          class="cs-section-header"
+          type="button"
+          data-action="toggle-section"
+          data-section-id="checks"
+          aria-expanded="true"
+          aria-controls="checks-content"
+        >
+          <span class="cs-section-twistie" aria-hidden="true"></span>
+          <span class="cs-section-title">Checks</span>
+        </button>
+        <div class="cs-section-body" id="checks-content">
+          <p class="cs-section-subtitle">Pipeline steps and status</p>
+          ${STEP_SECTIONS.map((section) =>
+            this.renderStepCard(section),
+          ).join("\n")}
+        </div>
+      </section>
     `;
   }
 
@@ -227,9 +256,8 @@ export class CommitSmithViewProvider
     const sectionId: SectionId = `step.${section.step}`;
     const cancelControl = section.supportsCancel
       ? `
-              <button
-                class="cs-button cs-button--secondary"
-                type="button"
+              <vscode-button
+                appearance="secondary"
                 data-role="cancel-step"
                 data-step-id="${section.step}"
                 data-requires-repo
@@ -238,13 +266,12 @@ export class CommitSmithViewProvider
                 title="${section.cancelTooltip ?? "Cancel not supported"}"
               >
                 Cancel
-              </button>`
+              </vscode-button>`
       : "";
     const logPaginationControl = section.supportsLogPagination
       ? `
-          <button
-            class="cs-button cs-button--link"
-            type="button"
+          <vscode-button
+            appearance="secondary"
             data-role="load-more-logs"
             data-step-id="${section.step}"
             disabled
@@ -252,7 +279,7 @@ export class CommitSmithViewProvider
             title="Load earlier log entries"
           >
             Load more logs
-          </button>`
+          </vscode-button>`
       : "";
     const codexReviewPanel =
       section.step === "codexReview"
@@ -272,52 +299,50 @@ export class CommitSmithViewProvider
       <article class="cs-step-card" data-section-id="${sectionId}">
         <header class="cs-step-header">
           <button
-            class="cs-section-toggle"
+            class="cs-section-toggle cs-section-toggle--step"
             type="button"
             data-action="toggle-section"
             data-section-id="${sectionId}"
             aria-expanded="true"
             aria-controls="${sectionId}-content"
           >
-            <span class="cs-step-title">${section.label}</span>
-            <span class="cs-step-description">${section.description}</span>
+            <span class="cs-section-chevron" aria-hidden="true"></span>
+            <span class="cs-step-text">
+              <span class="cs-step-title">${section.label}</span>
+              <span class="cs-step-description">${section.description}</span>
+            </span>
           </button>
           <span class="cs-status-chip" data-role="status-chip" data-step-id="${section.step}" aria-live="polite">Idle</span>
         </header>
           <div class="cs-step-content" id="${sectionId}-content">
             <div class="cs-step-actions">
               <div class="cs-step-actions__buttons">
-                <button
-                  class="cs-button"
-                type="button"
-                data-role="run-step"
-                data-step-id="${section.step}"
-                data-requires-repo
-              >
-                ${section.buttonLabel}
-              </button>
-              <button
-                class="cs-button cs-button--secondary"
-                type="button"
-                data-role="rerun-last"
-                data-step-id="${section.step}"
-                data-requires-repo
-                disabled
-              >
-                Rerun last
-              </button>
-              <button
-                class="cs-button"
-                type="button"
-                data-role="rerun-failed"
-                data-step-id="${section.step}"
-                data-requires-repo
-                disabled
-                title="Runs only failed targets (coming soon)"
-              >
-                Rerun failed only
-              </button>
-              ${cancelControl}
+                <vscode-button
+                  data-role="run-step"
+                  data-step-id="${section.step}"
+                  data-requires-repo
+                >
+                  ${section.buttonLabel}
+                </vscode-button>
+                <vscode-button
+                  appearance="secondary"
+                  data-role="rerun-last"
+                  data-step-id="${section.step}"
+                  data-requires-repo
+                  disabled
+                >
+                  Rerun last
+                </vscode-button>
+                <vscode-button
+                  data-role="rerun-failed"
+                  data-step-id="${section.step}"
+                  data-requires-repo
+                  disabled
+                  title="Runs only failed targets (coming soon)"
+                >
+                  Rerun failed only
+                </vscode-button>
+                ${cancelControl}
               </div>
               <label class="cs-checkbox">
                 <input
@@ -347,32 +372,30 @@ export class CommitSmithViewProvider
         data-section-id="journal"
         aria-label="Recent journal entries"
       >
-        <header class="cs-section-header">
-          <button
-            class="cs-section-toggle"
-            type="button"
-            data-action="toggle-section"
-            data-section-id="journal"
-            aria-expanded="true"
-            aria-controls="journal-content"
-          >
-            <span class="cs-section-title">Journal</span>
-            <span class="cs-section-subtitle">Codex, pipeline, and manual notes</span>
-          </button>
-        </header>
+        <button
+          class="cs-section-header"
+          type="button"
+          data-action="toggle-section"
+          data-section-id="journal"
+          aria-expanded="true"
+          aria-controls="journal-content"
+        >
+          <span class="cs-section-twistie" aria-hidden="true"></span>
+          <span class="cs-section-title">Journal</span>
+        </button>
         <div class="cs-section-body" id="journal-content">
+          <p class="cs-section-subtitle">Codex, pipeline, and manual notes</p>
           <ul class="cs-journal-list" data-role="journal-list" tabindex="0">
             <li class="cs-journal-empty">Journal entries will appear here.</li>
           </ul>
-          <button
-            class="cs-button cs-button--link"
-            type="button"
+          <vscode-button
+            appearance="secondary"
             data-role="journal-load-more"
             disabled
             aria-disabled="true"
           >
             Load more
-          </button>
+          </vscode-button>
         </div>
       </section>
     `;
@@ -385,28 +408,27 @@ export class CommitSmithViewProvider
         data-section-id="manual"
         aria-label="Manual note"
       >
-        <header class="cs-section-header">
-          <button
-            class="cs-section-toggle"
-            type="button"
-            data-action="toggle-section"
-            data-section-id="manual"
-            aria-expanded="true"
-            aria-controls="manual-content"
-          >
-            <span class="cs-section-title">Manual Note</span>
-            <span class="cs-section-subtitle">Add context to CommitSmith journal</span>
-          </button>
-        </header>
+        <button
+          class="cs-section-header"
+          type="button"
+          data-action="toggle-section"
+          data-section-id="manual"
+          aria-expanded="true"
+          aria-controls="manual-content"
+        >
+          <span class="cs-section-twistie" aria-hidden="true"></span>
+          <span class="cs-section-title">Manual Note</span>
+        </button>
         <div class="cs-section-body" id="manual-content">
+          <p class="cs-section-subtitle">Add context to CommitSmith journal</p>
           <label class="cs-field">
             <span class="cs-field-label">Note</span>
-            <textarea
-              class="cs-textarea"
+            <vscode-text-area
+              id="manual-note-input"
               rows="3"
               data-role="manual-note"
               data-requires-repo
-            ></textarea>
+            ></vscode-text-area>
           </label>
           <p
             class="cs-field-message"
@@ -416,22 +438,16 @@ export class CommitSmithViewProvider
           ></p>
           <div class="cs-field-footer">
             <span class="cs-counter" data-role="manual-counter">0 / 500</span>
-            <label class="cs-checkbox">
-              <input
-                type="checkbox"
-                data-role="note-opt-out"
-              />
+            <vscode-checkbox data-role="note-opt-out">
               Do not add notes to next commit
-            </label>
+            </vscode-checkbox>
           </div>
-          <button
-            class="cs-button"
-            type="button"
+          <vscode-button
             data-role="add-note"
             data-requires-repo
           >
             Add note
-          </button>
+          </vscode-button>
         </div>
       </section>
     `;
@@ -444,49 +460,45 @@ export class CommitSmithViewProvider
         data-section-id="commit"
         aria-label="Commit message"
       >
-        <header class="cs-section-header">
-          <button
-            class="cs-section-toggle"
-            type="button"
-            data-action="toggle-section"
-            data-section-id="commit"
-            aria-expanded="true"
-            aria-controls="commit-content"
-          >
-            <span class="cs-section-title">Commit</span>
-            <span class="cs-section-subtitle">Prepare Conventional Commit message</span>
-          </button>
-        </header>
+        <button
+          class="cs-section-header"
+          type="button"
+          data-action="toggle-section"
+          data-section-id="commit"
+          aria-expanded="true"
+          aria-controls="commit-content"
+        >
+          <span class="cs-section-twistie" aria-hidden="true"></span>
+          <span class="cs-section-title">Commit</span>
+        </button>
         <div class="cs-section-body" id="commit-content">
+          <p class="cs-section-subtitle">Prepare Conventional Commit message</p>
           <label class="cs-field">
             <span class="cs-field-label">Commit message</span>
-            <textarea
-              class="cs-textarea"
+            <vscode-text-area
+              id="commit-message-input"
               rows="4"
               data-role="commit-message"
               placeholder="Enter a message or run Codex/heuristics"
               data-requires-repo
-            ></textarea>
+            ></vscode-text-area>
           </label>
           <div class="cs-field-footer">
-          <span class="cs-counter" data-role="commit-counter">0 / 72</span>
-          <label class="cs-checkbox">
-            <input
-              type="checkbox"
+            <span class="cs-counter" data-role="commit-counter">0 / 72</span>
+            <vscode-checkbox
               data-role="push-after"
               data-requires-repo
-            />
-            Push after commit
-          </label>
+            >
+              Push after commit
+            </vscode-checkbox>
           </div>
-          <button
-            class="cs-button cs-button--primary"
-            type="button"
+          <vscode-button
+            appearance="primary"
             data-role="commit"
             data-requires-repo
           >
             Commit &amp; Push
-          </button>
+          </vscode-button>
         </div>
       </section>
     `;

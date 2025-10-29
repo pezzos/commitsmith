@@ -103,7 +103,9 @@ export function initializeUiInfrastructure(
     repositorySelector,
   });
 
-  if (typeof vscode.window.registerWebviewViewProvider === "function") {
+  if (
+    typeof vscode.window.registerWebviewViewProvider === "function"
+  ) {
     context.subscriptions.push(
       vscode.window.registerWebviewViewProvider(
         CommitSmithViewProvider.viewType,

@@ -89,7 +89,10 @@ export type UiOutgoingMessage =
     }
   | {
       readonly type: "MANUAL_NOTE_RESULT";
-      readonly payload: { readonly success: boolean; readonly message?: string };
+      readonly payload: {
+        readonly success: boolean;
+        readonly message?: string;
+      };
     }
   | {
       readonly type: "REVIEW_RESULT";

@@ -94,9 +94,11 @@ export class JournalController implements vscode.Disposable {
     const kind = (message as { type: string }).type;
     switch (kind) {
       case "ADD_MANUAL_NOTE": {
-        const payload = (message as {
-          payload?: { text?: string };
-        }).payload;
+        const payload = (
+          message as {
+            payload?: { text?: string };
+          }
+        ).payload;
         await this.handleManualNote(payload?.text ?? "");
         break;
       }
@@ -145,11 +147,15 @@ export class JournalController implements vscode.Disposable {
       source: "manual",
     };
     try {
-      await addEntry(journalRecord, { root: repository.rootUri.fsPath });
+      await addEntry(journalRecord, {
+        root: repository.rootUri.fsPath,
+      });
       await this.appendEntries([entry]);
       await this.deps.stateStore.update("draftNote", "");
       this.sendManualNoteResult({ success: true });
-      const maskedPreview = this.masker.mask(normalized).slice(0, 120);
+      const maskedPreview = this.masker
+        .mask(normalized)
+        .slice(0, 120);
       this.deps.telemetry.track("manual_note_added", {
         length: normalized.length,
         notes: this.entries.filter(
@@ -263,7 +269,10 @@ export class JournalController implements vscode.Disposable {
         this.entries.splice(0, this.entries.length, ...manualEntries);
         this.displayedCount = Math.min(
           this.entries.length,
-          Math.max(this.displayedCount || JOURNAL_PAGE_SIZE, JOURNAL_PAGE_SIZE),
+          Math.max(
+            this.displayedCount || JOURNAL_PAGE_SIZE,
+            JOURNAL_PAGE_SIZE,
+          ),
         );
         await this.syncState();
         return;
@@ -280,7 +289,10 @@ export class JournalController implements vscode.Disposable {
       this.entries.splice(0, this.entries.length, ...merged);
       this.displayedCount = Math.min(
         this.entries.length,
-        Math.max(this.displayedCount || JOURNAL_PAGE_SIZE, JOURNAL_PAGE_SIZE),
+        Math.max(
+          this.displayedCount || JOURNAL_PAGE_SIZE,
+          JOURNAL_PAGE_SIZE,
+        ),
       );
       await this.syncState();
     } catch (error) {
@@ -315,7 +327,9 @@ export class JournalController implements vscode.Disposable {
     }
   }
 
-  private sendManualNoteResult(payload: ManualNoteResultPayload): void {
+  private sendManualNoteResult(
+    payload: ManualNoteResultPayload,
+  ): void {
     this.deps.bridge.postMessage({
       type: "MANUAL_NOTE_RESULT",
       payload,

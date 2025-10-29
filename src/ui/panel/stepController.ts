@@ -688,7 +688,10 @@ export class StepController implements vscode.Disposable {
     const existing = Array.isArray(existingRaw)
       ? [...existingRaw]
       : [];
-    const updated = [entry, ...existing].slice(0, LEGACY_JOURNAL_LIMIT);
+    const updated = [entry, ...existing].slice(
+      0,
+      LEGACY_JOURNAL_LIMIT,
+    );
     await this.deps.stateStore.update("journalEntries", updated);
     this.deps.bridge.postMessage({
       type: "JOURNAL_UPDATE",

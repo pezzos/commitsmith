@@ -32,7 +32,9 @@ interface GitApiSnapshot {
 function resolveGitApi(): GitApiSnapshot {
   try {
     const gitExtension =
-      vscode.extensions.getExtension<GitExtensionExports>("vscode.git");
+      vscode.extensions.getExtension<GitExtensionExports>(
+        "vscode.git",
+      );
     if (!gitExtension) {
       return {};
     }
@@ -49,9 +51,7 @@ function resolveGitApi(): GitApiSnapshot {
       }
     }
 
-    const activation = Promise.resolve(
-      gitExtension.activate(),
-    )
+    const activation = Promise.resolve(gitExtension.activate())
       .then<GitAPI | undefined>((exports) => {
         try {
           return exports?.getAPI?.(1);
@@ -185,10 +185,14 @@ export class RepositorySelector implements vscode.Disposable {
     this.disposeGitListeners();
     const { onDidOpenRepository, onDidCloseRepository } = api;
     if (typeof onDidOpenRepository === "function") {
-      this.gitDisposables.push(onDidOpenRepository(() => this.refresh()));
+      this.gitDisposables.push(
+        onDidOpenRepository(() => this.refresh()),
+      );
     }
     if (typeof onDidCloseRepository === "function") {
-      this.gitDisposables.push(onDidCloseRepository(() => this.refresh()));
+      this.gitDisposables.push(
+        onDidCloseRepository(() => this.refresh()),
+      );
     }
     if (api.onDidChangeSelectedRepository) {
       this.gitDisposables.push(

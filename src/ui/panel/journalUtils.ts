@@ -4,7 +4,9 @@ import type { JournalEntry } from "../../shared/types";
 
 export const JOURNAL_PAGE_SIZE = 50;
 
-export type JournalEntryWithHash = JournalEntry & { readonly hash: string };
+export type JournalEntryWithHash = JournalEntry & {
+  readonly hash: string;
+};
 
 export function ensureJournalEntryHash(
   entry: JournalEntry,
@@ -12,7 +14,9 @@ export function ensureJournalEntryHash(
   const normalizedText =
     typeof entry.text === "string" ? entry.text.trim() : "";
   const normalizedMessage =
-    typeof entry.message === "string" ? entry.message.trim() : undefined;
+    typeof entry.message === "string"
+      ? entry.message.trim()
+      : undefined;
   const normalizedSource =
     entry.source === "pipeline" || entry.source === "manual"
       ? entry.source
@@ -22,7 +26,9 @@ export function ensureJournalEntryHash(
       ? { ...entry.metadata }
       : undefined;
   const normalizedTs =
-    typeof entry.ts === "string" && entry.ts.length > 0 ? entry.ts : undefined;
+    typeof entry.ts === "string" && entry.ts.length > 0
+      ? entry.ts
+      : undefined;
   const base: JournalEntry = {
     ...entry,
     source: normalizedSource,
@@ -94,7 +100,10 @@ export function applyManualNotesToDraft(
   if (sanitized.length === 0) {
     return base;
   }
-  const block = ["Notes:", ...sanitized.map((text) => `- ${text}`)].join("\n");
+  const block = [
+    "Notes:",
+    ...sanitized.map((text) => `- ${text}`),
+  ].join("\n");
   if (base.length === 0) {
     return block;
   }
@@ -139,7 +148,10 @@ function stripManualNotesBlock(value: string): string {
     return value.trimEnd();
   }
   const before = lines.slice(0, start);
-  while (before.length > 0 && before[before.length - 1].trim() === "") {
+  while (
+    before.length > 0 &&
+    before[before.length - 1].trim() === ""
+  ) {
     before.pop();
   }
   const after = lines.slice(end);
@@ -163,9 +175,9 @@ function canonicalize(value: unknown): unknown {
     return value.map((item) => canonicalize(item));
   }
   if (value && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).sort(
-      ([a], [b]) => a.localeCompare(b),
-    );
+    const entries = Object.entries(
+      value as Record<string, unknown>,
+    ).sort(([a], [b]) => a.localeCompare(b));
     const normalized: Record<string, unknown> = {};
     for (const [key, v] of entries) {
       normalized[key] = canonicalize(v);

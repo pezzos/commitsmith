@@ -5,3 +5,4 @@ dist
 .commit-smith/
 .ai-commit-journal.yml
 .DS_Store
+docs/vscode*

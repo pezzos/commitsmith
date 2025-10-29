@@ -128,7 +128,9 @@ export class CommitSmithStateStore implements vscode.Disposable {
         ...stored.collapsedSections,
       },
       journalEntries: Array.isArray(stored.journalEntries)
-        ? stored.journalEntries.map((entry) => ensureJournalEntryHash(entry))
+        ? stored.journalEntries.map((entry) =>
+            ensureJournalEntryHash(entry),
+          )
         : DEFAULT_STATE.journalEntries.slice(),
       journalCursor:
         typeof stored.journalCursor === "string" &&

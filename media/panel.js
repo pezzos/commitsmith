@@ -421,27 +421,22 @@
 
   function applyRepositoryAvailability(available) {
     controlsRequiringRepo.forEach((element) => {
-      const role =
-        element instanceof HTMLElement
-          ? element.getAttribute("data-role")
-          : null;
-      if (
-        element instanceof HTMLButtonElement &&
-        role === "rerun-failed"
-      ) {
+      if (!(element instanceof HTMLElement)) {
+        return;
+      }
+      const role = element.getAttribute("data-role");
+      const supportsDisabled =
+        "disabled" in element && typeof element.disabled === "boolean";
+      if (role === "rerun-failed" && supportsDisabled) {
         element.disabled = true;
         element.setAttribute("aria-disabled", "true");
         return;
       }
-      if (
-        element instanceof HTMLButtonElement ||
-        element instanceof HTMLInputElement ||
-        element instanceof HTMLTextAreaElement
-      ) {
+      if (supportsDisabled) {
         const shouldDisable = !available;
         element.disabled = shouldDisable;
-        element.setAttribute("aria-disabled", shouldDisable.toString());
         if (!available) {
+          element.setAttribute("aria-disabled", "true");
           element.setAttribute(
             "title",
             "Select a repository to run CommitSmith",
@@ -451,11 +446,7 @@
           element.removeAttribute("aria-disabled");
         }
       }
-      if (
-        role === "add-note" &&
-        element instanceof HTMLButtonElement &&
-        manualNotePending
-      ) {
+      if (role === "add-note" && manualNotePending && supportsDisabled) {
         element.disabled = true;
         element.setAttribute("aria-disabled", "true");
       }
@@ -498,8 +489,25 @@
     const toggle = section.querySelector(
       `[data-action="toggle-section"][data-section-id="${sectionId}"]`,
     );
+    let content = null;
     if (toggle) {
       toggle.setAttribute("aria-expanded", (!collapsed).toString());
+      const controls = toggle.getAttribute("aria-controls");
+      if (controls) {
+        content = document.getElementById(controls);
+      }
+    }
+    if (!content) {
+      content =
+        section.querySelector(".cs-section-body") ||
+        section.querySelector(".cs-step-content");
+    }
+    if (content instanceof HTMLElement) {
+      if (collapsed) {
+        content.setAttribute("hidden", "");
+      } else {
+        content.removeAttribute("hidden");
+      }
     }
     state.collapsedSections[sectionId] = collapsed;
     if (notifyHost) {
@@ -707,16 +715,17 @@
 
   function setManualNotePending(pending) {
     manualNotePending = pending;
-    if (!(addNoteButton instanceof HTMLButtonElement)) {
+    if (
+      !addNoteButton ||
+      typeof addNoteButton !== "object" ||
+      !("disabled" in addNoteButton)
+    ) {
       return;
     }
-    if (pending) {
-      addNoteButton.disabled = true;
+    addNoteButton.disabled = pending || !state.repositoryAvailable;
+    if (addNoteButton.disabled) {
       addNoteButton.setAttribute("aria-disabled", "true");
-      return;
-    }
-    if (state.repositoryAvailable) {
-      addNoteButton.disabled = false;
+    } else {
       addNoteButton.removeAttribute("aria-disabled");
     }
   }
@@ -728,7 +737,11 @@
 
   function updateJournalLoadMoreButton() {
     const button = selectors.journalLoadMore;
-    if (!(button instanceof HTMLButtonElement)) {
+    if (
+      !button ||
+      typeof button !== "object" ||
+      !("disabled" in button)
+    ) {
       return;
     }
     const shouldDisable =
