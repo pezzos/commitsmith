@@ -26,3 +26,6 @@ tsconfig.*.json
 **/*.ts
 **/*.map
 node_modules/.cache/**
+/devserver
+/media/theme-mock.css
+/media/theme-override.css

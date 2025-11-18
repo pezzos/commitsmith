@@ -60,6 +60,12 @@ export type UiIncomingMessage =
       readonly payload: { value: boolean };
     }
   | {
+      readonly type: "EXPORT_THEME";
+      readonly payload: {
+        readonly variables: Record<string, string>;
+      };
+    }
+  | {
       readonly type: "COMMIT_AND_PUSH";
       readonly payload: { message: string; push: boolean };
     }
@@ -97,6 +103,10 @@ export type UiOutgoingMessage =
   | {
       readonly type: "REVIEW_RESULT";
       readonly payload: CodexReviewSnapshot;
+    }
+  | {
+      readonly type: "REQUEST_THEME_EXPORT";
+      readonly payload?: { readonly reason?: "auto" | "manual" };
     }
   | {
       readonly type: "ERROR";

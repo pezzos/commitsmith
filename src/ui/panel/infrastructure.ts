@@ -26,6 +26,7 @@ const COMMAND_RUN_TESTS = "commitSmith.runTests";
 const COMMAND_ASK_CODEX_REVIEW = "commitSmith.askCodexReview";
 const COMMAND_ADD_MANUAL_NOTE = "commitSmith.addManualNote";
 const COMMAND_COMMIT_AND_PUSH = "commitSmith.commitAndPush";
+const COMMAND_EXPORT_THEME = "commitSmith.exportTheme";
 const CONTEXT_KEY_KEYBINDINGS = "commitSmith:uiKeybindingsEnabled";
 
 const STEP_DISPLAY_ORDER: StepId[] = [
@@ -173,6 +174,23 @@ function registerCommands(
       vscode.commands.executeCommand(focusViewCommand),
     ),
   );
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      COMMAND_EXPORT_THEME,
+      async () => {
+        await vscode.commands.executeCommand(focusViewCommand);
+        deps.bridge.postMessage({
+          type: "REQUEST_THEME_EXPORT",
+          payload: { reason: "manual" },
+        });
+        void vscode.window.setStatusBarMessage(
+          "CommitSmith exporting VS Code theme variables...",
+          2000,
+        );
+      },
+    ),
+  );
+  maybeAutoExportTheme(focusViewCommand, deps.bridge);
   const placeholderCommands = [
     COMMAND_RUN_FORMAT,
     COMMAND_RUN_LINT,
@@ -274,6 +292,40 @@ async function refreshOfflineState(): Promise<void> {
   } catch {
     await setOffline(true);
   }
+}
+
+function maybeAutoExportTheme(
+  focusViewCommand: string,
+  bridge: CommitSmithUIBridge,
+): void {
+  if (process.env.COMMITSMITH_AUTO_EXPORT_THEME !== "1") {
+    return;
+  }
+  delete process.env.COMMITSMITH_AUTO_EXPORT_THEME;
+  void vscode.window.setStatusBarMessage(
+    "CommitSmith exporting VS Code theme variables...",
+    2000,
+  );
+  setTimeout(() => {
+    void vscode.commands
+      .executeCommand(focusViewCommand)
+      .then(
+        () => {
+          setTimeout(() => {
+            bridge.postMessage({
+              type: "REQUEST_THEME_EXPORT",
+              payload: { reason: "auto" },
+            });
+          }, 300);
+        },
+        () => {
+          bridge.postMessage({
+            type: "REQUEST_THEME_EXPORT",
+            payload: { reason: "auto" },
+          });
+        },
+      );
+  }, 300);
 }
 
 function mapCommandToStep(command: string): StepId | undefined {

@@ -1,5 +1,6 @@
 (function () {
   const vscode = acquireVsCodeApi();
+  let themeExportStylesheetWarning = false;
 
   const strings = {
     manualNoteEmpty: "Enter a note before adding.",
@@ -50,6 +51,52 @@
     ),
   };
 
+  let themeTokensPromise = undefined;
+
+  async function loadThemeTokens() {
+    if (!themeTokensPromise) {
+      themeTokensPromise = Promise.resolve().then(() => {
+        const script = document.getElementById(
+          "commit-smith-theme-tokens",
+        );
+        if (!script || !script.textContent) {
+          return [];
+        }
+        try {
+          const parsed = JSON.parse(script.textContent);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (error) {
+          console.error(
+            "[CommitSmith] Unable to parse theme token catalog:",
+            error,
+          );
+          return [];
+        }
+      });
+    }
+    return themeTokensPromise;
+  }
+
+  function ensureThemeProbe(tokens) {
+    if (!tokens || tokens.length === 0) {
+      return;
+    }
+    if (document.getElementById("commit-smith-theme-probe")) {
+      return;
+    }
+    const container = document.createElement("div");
+    container.id = "commit-smith-theme-probe";
+    container.style.display = "none";
+    for (const token of tokens) {
+      const span = document.createElement("span");
+      span.setAttribute("data-token", token);
+      span.style.color = `var(${token})`;
+      span.style.background = `var(${token})`;
+      container.appendChild(span);
+    }
+    document.body.appendChild(container);
+  }
+
   const state = {
     collapsedSections: {},
     draftMessage: "",
@@ -67,6 +114,164 @@
     journalHasMore: false,
     journalCursor: null,
   };
+
+  async function collectThemeVariables() {
+    const root = document.documentElement;
+    if (!root) {
+      return {};
+    }
+    const computed = getComputedStyle(root);
+    const body = document.body;
+    const bodyComputed = body ? getComputedStyle(body) : undefined;
+    const tokenList = await loadThemeTokens();
+    console.log(
+      "[CommitSmith] Theme export token catalog size:",
+      Array.isArray(tokenList) ? tokenList.length : 0,
+    );
+    ensureThemeProbe(tokenList);
+    const names = new Set(tokenList);
+    const dynamicTokens = {};
+
+    function recordFromStyle(style) {
+      if (!style) {
+        return;
+      }
+      for (let index = 0; index < style.length; index += 1) {
+        const name = style[index];
+        if (typeof name === "string" && name.startsWith("--vscode-")) {
+          names.add(name);
+        }
+      }
+    }
+
+    recordFromStyle(root.style);
+
+    if (bodyComputed) {
+      for (const key of bodyComputed) {
+        if (typeof key === "string" && key.startsWith("--vscode-")) {
+          const value = bodyComputed.getPropertyValue(key);
+          if (value) {
+            dynamicTokens[key] = value.trim();
+            names.add(key);
+          }
+        }
+      }
+    }
+
+    const inlineStyles = document.querySelectorAll("style");
+    inlineStyles.forEach((node) => {
+      const text = node.textContent;
+      if (!text || !text.includes("--vscode-")) {
+        return;
+      }
+      const matches = text.match(/--vscode-[\w-]+/g);
+      if (matches) {
+        matches.forEach((token) => {
+          if (token.startsWith("--vscode-")) {
+            names.add(token);
+          }
+        });
+      }
+    });
+
+    const styleSheets = Array.from(document.styleSheets ?? []);
+    for (const sheet of styleSheets) {
+      try {
+        const rules = sheet.cssRules;
+        for (let index = 0; rules && index < rules.length; index += 1) {
+          const rule = rules[index];
+          if (
+            rule &&
+            "cssText" in rule &&
+            typeof rule.cssText === "string" &&
+            rule.cssText.includes("--vscode-")
+          ) {
+            const matches = rule.cssText.match(/--vscode-[\w-]+/g);
+            if (matches) {
+              matches.forEach((token) => {
+                if (token.startsWith("--vscode-")) {
+                  names.add(token);
+                }
+              });
+            }
+          }
+        }
+      } catch (error) {
+        if (!themeExportStylesheetWarning) {
+          console.warn(
+            "[CommitSmith] Unable to read one or more stylesheets while exporting the theme snapshot.",
+            error,
+          );
+          themeExportStylesheetWarning = true;
+        }
+      }
+    }
+
+    for (let index = 0; index < computed.length; index += 1) {
+      const name = computed[index];
+      if (typeof name === "string" && name.startsWith("--vscode-")) {
+        names.add(name);
+      }
+    }
+
+    const variables = { ...dynamicTokens };
+    let emptyCount = 0;
+    names.forEach((name) => {
+      if (variables[name]) {
+        return;
+      }
+      const value =
+        computed.getPropertyValue(name)?.trim() ||
+        bodyComputed?.getPropertyValue(name)?.trim() ||
+        root.style.getPropertyValue(name)?.trim();
+      if (value) {
+        variables[name] = value;
+      } else {
+        emptyCount += 1;
+      }
+    });
+    console.log(
+      "[CommitSmith] Theme export resolved values:",
+      Object.keys(variables).length,
+      "missing:",
+      emptyCount,
+    );
+    return variables;
+  }
+
+  async function publishThemeVariables() {
+    try {
+      const variables = await collectThemeVariables();
+      if (Object.keys(variables).length === 0) {
+        return;
+      }
+      vscode.postMessage({
+        type: "EXPORT_THEME",
+        payload: { variables },
+      });
+    } catch (error) {
+      console.error(
+        "[CommitSmith] Failed to capture theme variables:",
+        error,
+      );
+    }
+  }
+
+  function requestThemeExport() {
+    if (document.readyState === "loading") {
+      document.addEventListener(
+        "DOMContentLoaded",
+        () => {
+          void publishThemeVariables();
+        },
+        { once: true },
+      );
+      return;
+    }
+    void publishThemeVariables();
+  }
+
+  requestThemeExport();
 
   const controlsRequiringRepo = document.querySelectorAll(
     "[data-requires-repo]",
@@ -350,6 +555,9 @@
         break;
       case "MANUAL_NOTE_RESULT":
         handleManualNoteResult(data.payload);
+        break;
+      case "REQUEST_THEME_EXPORT":
+        requestThemeExport();
         break;
       default:
         break;

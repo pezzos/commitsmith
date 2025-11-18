@@ -2,7 +2,7 @@
   "name": "commit-smith",
   "displayName": "CommitSmith",
   "description": "Forge high-quality commits with Codex-assisted workflows.",
-  "version": "0.0.96",
+  "version": "0.0.109",
   "publisher": "epicsmith",
   "license": "MIT",
   "main": "./dist/extension.js",
@@ -27,7 +27,10 @@
     "format:check": "prettier --check . --config .prettierrc.json",
     "format:fix": "prettier --write . --config .prettierrc.json",
     "lint": "tsc --noEmit -p tsconfig.json && node ./scripts/check-vscode-parity.mjs",
-    "package": "npm version patch --no-git-tag-version && npm run compile && vsce package"
+    "package": "npm version patch --no-git-tag-version && npm run compile && vsce package",
+    "generate:theme-tokens": "node scripts/generate-theme-tokens.js",
+    "export:theme": "node scripts/export-theme.js",
+    "dev:ui": "node devserver/server.js"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -40,6 +43,7 @@
     "workspaceContains:.ai-commit-journal.yml",
     "workspaceContains:**/.gitignore",
     "onCommand:commitSmith.openPanel",
+    "onCommand:commitSmith.exportTheme",
     "onView:commitSmith.panel"
   ],
   "bin": {
@@ -349,6 +353,11 @@
       {
         "command": "commitSmith.openPanel",
         "title": "CommitSmith: Open Panel",
+        "category": "CommitSmith"
+      },
+      {
+        "command": "commitSmith.exportTheme",
+        "title": "CommitSmith: Export Theme Snapshot",
         "category": "CommitSmith"
       },
       {
